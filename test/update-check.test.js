@@ -37,12 +37,41 @@ function readCacheFile() { return JSON.parse(fs.readFileSync(CACHE, "utf8")); }
 
 const realFetch = globalThis.fetch;
 
+/**
+ * EVERY off switch, not just ours.
+ *
+ * `updateCheckDisabled` honours three: `AILE_NO_UPDATE_CHECK`,
+ * `NO_UPDATE_NOTIFIER` and `CI`. This hook used to clear only the first, which
+ * passes on a laptop and fails on a runner — GitHub Actions sets `CI=true`, so
+ * `pendingUpdate()` and `refreshCache()` correctly returned null and six tests
+ * that assert the enabled path failed. It surfaced on the very first real CI
+ * run, at the v1.0.0 publish, where the test gate stopped the release.
+ *
+ * A test that drives the enabled path has to own all three, or it is really
+ * asserting "the machine I happen to run on has no CI variable". The product
+ * behaviour is deliberate and unchanged — a pipeline neither reads nor acts on
+ * an update notice — and the switches are still covered by the explicit-env
+ * test in the `updateCheckDisabled` block above.
+ */
+const OFF_SWITCHES = ["AILE_NO_UPDATE_CHECK", "NO_UPDATE_NOTIFIER", "CI"];
+const saved = new Map();
+
 beforeEach(() => {
   // Drive the ENABLED path. The preload turned it off for everyone else.
-  delete process.env.AILE_NO_UPDATE_CHECK;
+  for (const key of OFF_SWITCHES) {
+    saved.set(key, process.env[key]);
+    delete process.env[key];
+  }
   clearCache();
 });
 afterEach(() => {
+  // Restore exactly what was there, absent included — a test that leaves CI set
+  // on a laptop, or unset on a runner, changes the next file's environment.
+  for (const key of OFF_SWITCHES) {
+    const was = saved.get(key);
+    if (was === undefined) delete process.env[key];
+    else process.env[key] = was;
+  }
   process.env.AILE_NO_UPDATE_CHECK = "1";
   globalThis.fetch = realFetch;
   clearCache();
