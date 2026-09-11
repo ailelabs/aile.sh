@@ -1,0 +1,15 @@
+[test]
+# Redirects AILE_DATA_DIR to a temp dir before any module computes its paths.
+# Without this, tests touch the developer's real ~/.aile — see test/setup.js.
+preload = ["./test/setup.js"]
+
+# RUN THE SUITE WITH `bun test --isolate` — `npm test` does this for you.
+#
+# `mock.module` mutates one process-wide module registry and cannot be undone
+# (mock.restore does not reverse it). So login.test.js replacing
+# src/api/client.js makes the REAL client unavailable to every file that loads
+# afterwards, and transport.test.js — which tests that client — silently gets a
+# stub with none of its exports. --isolate gives each file its own registry.
+#
+# It is a CLI flag only; there is no bunfig key for it, which is why this is a
+# comment rather than a setting.

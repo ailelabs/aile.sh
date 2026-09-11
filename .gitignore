@@ -1,0 +1,28 @@
+# Dependencies & build output
+node_modules/
+dist/
+*.tgz
+
+# OS / editor / agent tooling
+.DS_Store
+.vscode/
+.cursor/
+.codex/
+.claude-config/
+.claude/
+
+# Secrets & local state — never commit
+.env
+.env.*
+*.pem
+*.key
+*.db
+*.db-wal
+*.db-shm
+
+# Local scratch
+_ported_backup_*
+.turbo/
+
+# Local scratch logs
+*.log

@@ -1,0 +1,54 @@
+{
+  "name": "aile.sh",
+  "version": "1.0.0",
+  "description": "Command-line client for aile.sh — lend spare AI capacity from a machine you own, or choose which lender serves your requests.",
+  "type": "module",
+  "bin": {
+    "aile": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "bun run scripts/build.js",
+    "dev": "bun run src/cli/index.js",
+    "test": "bun test --isolate",
+    "sync-providers": "bun run scripts/sync-providers.js",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "aile",
+    "ai",
+    "llm",
+    "inference",
+    "marketplace",
+    "relay",
+    "openai",
+    "anthropic",
+    "cli",
+    "solana",
+    "usdc"
+  ],
+  "homepage": "https://aile.sh/docs/cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ailelabs/aile.sh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ailelabs/aile.sh/issues"
+  },
+  "author": "Aile Labs",
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "node-forge": "^1.4.0"
+  }
+}

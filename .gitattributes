@@ -1,0 +1,11 @@
+# Normalise to LF in the repository, whatever the contributor's platform does
+# locally. The published bundle carries a `#!/usr/bin/env node` shebang, and a
+# CRLF line ending on that first line makes the kernel look for an interpreter
+# named "node\r" — the install succeeds and every invocation fails.
+* text=auto eol=lf
+
+# Binary, never touched.
+*.png binary
+*.ico binary
+*.woff binary
+*.woff2 binary
