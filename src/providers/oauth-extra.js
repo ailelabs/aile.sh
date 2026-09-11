@@ -27,7 +27,7 @@
  * and not the other. Keep them in step.
  *
  * The `transport` block here is read ONLY by probe.js (a node relays blind — the
- * server injects the real transport at serve time), so it carries the omniroute
+ * server injects the real transport at serve time), so it carries the upstream
  * serve address and format for parity but its `auth` is effectively inert. The
  * `oauth` block is what actually drives linking.
  */

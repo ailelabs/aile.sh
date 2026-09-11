@@ -16,7 +16,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.join(import.meta.dirname, "..");
-const FORBIDDEN = /9router/i;
+// BOTH names, because the upstream has been called both and the guard was
+// written knowing only one. A comment in src/providers/oauth-extra.js carried
+// "omniroute" past every run of this test and was found by a manual scan taken
+// before making the repository public — which is exactly the review this file
+// exists to make unnecessary. A name the guard does not know is a name that
+// ships.
+const FORBIDDEN = /9router|omniroute/i;
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -48,7 +54,16 @@ describe("branding", () => {
   });
 
   test("user-facing docs are clean", () => {
-    for (const doc of ["README.md", "CHANGELOG.md", "SECURITY.md", "docs/PROTOCOL.md"]) {
+    // The four generated CLI docs are included on purpose. They are rewritten
+    // from the website on every change, so a name that reaches a page there
+    // reaches this repository on the next sync without anyone editing a file
+    // here — which is precisely the path a guard scoped to hand-written docs
+    // would not cover.
+    for (const doc of [
+      "README.md", "CHANGELOG.md", "SECURITY.md",
+      "docs/PROTOCOL.md", "docs/CLI.md", "docs/COMMANDS.md",
+      "docs/CONFIGURATION.md", "docs/ENVIRONMENT.md",
+    ]) {
       const abs = path.join(ROOT, doc);
       if (!fs.existsSync(abs)) continue;
       expect({ doc, clean: !FORBIDDEN.test(fs.readFileSync(abs, "utf8")) })

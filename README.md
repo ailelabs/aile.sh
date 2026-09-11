@@ -156,16 +156,30 @@ make it.
 
 ## Documentation
 
+In this repository, so a clone carries the documentation rather than a link to it:
+
+| | |
+|---|---|
+| [docs/CLI.md](docs/CLI.md) | Install, first run, how arguments are parsed |
+| [docs/COMMANDS.md](docs/COMMANDS.md) | Every command, alias and flag |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every setting, default and allowed range |
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Environment variables, and how they beat config keys |
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | Wire protocol, trust model, allowlist, attestation |
+
+Those four are generated from [aile.sh/docs](https://aile.sh/docs) and rewritten
+on each change, so they cannot fall behind the site. `PROTOCOL.md` is written by
+hand and lives only here. Edit any of the four on the website, not in this repo.
+
+The rest of the documentation stays online, because it describes the service
+rather than this client:
+
 | | |
 |---|---|
 | [Quickstart](https://aile.sh/docs/quickstart) | Sign up, install, first request |
-| [Commands](https://aile.sh/docs/cli/commands) | Every command and flag |
-| [Config](https://aile.sh/docs/cli/config) · [Env](https://aile.sh/docs/cli/env) | Settings and environment variables |
 | [Lending](https://aile.sh/docs/lend) | Connect accounts, set rates, run the node |
 | [Buying](https://aile.sh/docs/buy) | Keys, models, routing, streaming, errors |
 | [Pricing](https://aile.sh/docs/pricing) | Fees, discounts, who pays what |
 | [Troubleshooting](https://aile.sh/docs/troubleshooting) | When something is wrong |
-| [PROTOCOL.md](docs/PROTOCOL.md) | Wire protocol, trust model, allowlist, attestation |
 
 ## Development
 
