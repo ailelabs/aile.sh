@@ -25,7 +25,7 @@ import os from "node:os";
 
 import { buildCapabilities, SAFE_FIELDS, DERIVED_FIELDS } from "../src/relay/attest.js";
 import { saveConfig, resetSettings } from "../src/relay/config.js";
-import { buildMcpCapability } from "../src/mcp/capabilities.js";
+import { buildMcpCapability, __resetMcpWarnState } from "../src/mcp/capabilities.js";
 import { normalizeServer } from "../src/mcp/config.js";
 import { RelayAgent } from "../src/relay/agent.js";
 
@@ -357,6 +357,51 @@ describe("sandboxed MCP capacity is advertised the same way, and withheld the sa
     expect(caps.mcpServers).toEqual([]);
     // …and the lender is told which of the two reasons it was.
     expect(mcp.reason).toMatch(/installed but not running/);
+  });
+
+  // The heartbeat is this client's highest-frequency outbound message (see the
+  // file header), so anything that logs unconditionally from it logs on every
+  // reconnect. "Docker is not running" is worth saying; saying it dozens of
+  // times for a fact that has not changed is what buries every other line and
+  // teaches a lender to skim past their own node's log.
+  it("states a standing MCP complaint once, not on every handshake", () => {
+    __resetMcpWarnState();
+    const warned = [];
+    const args = {
+      load: () => [normalizeServer({ id: "srv", image: "alpine:3" })],
+      detect: () => ({ ok: false, state: "stopped", message: "installed but not running" }),
+      log: { warn: (m) => warned.push(m) },
+    };
+
+    buildMcpCapability(args);
+    buildMcpCapability(args);
+    buildMcpCapability(args);
+
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatch(/not advertising 1 declared MCP server/);
+  });
+
+  it("says it again when the reason changes, and after a recovery", () => {
+    __resetMcpWarnState();
+    const warned = [];
+    const log = { warn: (m) => warned.push(m) };
+    const load = () => [normalizeServer({ id: "srv", image: "alpine:3" })];
+    const stopped = { ok: false, state: "stopped", message: "installed but not running" };
+    const missing = { ok: false, state: "absent", message: "no container runtime found" };
+    const running = { ok: true, runtime: "docker", state: "running", message: "docker 27.1.1" };
+
+    buildMcpCapability({ load, detect: () => stopped, log });
+    // A DIFFERENT fault is news even though the previous one was also a fault.
+    buildMcpCapability({ load, detect: () => missing, log });
+    // Recovery clears the memo, so the relapse below is announced rather than
+    // swallowed as "already said".
+    buildMcpCapability({ load, detect: () => running, log });
+    buildMcpCapability({ load, detect: () => stopped, log });
+
+    expect(warned).toHaveLength(3);
+    expect(warned[0]).toMatch(/installed but not running/);
+    expect(warned[1]).toMatch(/no container runtime found/);
+    expect(warned[2]).toMatch(/installed but not running/);
   });
 
   it("carries the blindness answer and the egress caveat with the listing", async () => {

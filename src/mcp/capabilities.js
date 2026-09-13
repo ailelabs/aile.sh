@@ -26,6 +26,34 @@ import { enabledMcpServers } from "./config.js";
 import { detectRuntime, describeEgress } from "./sandbox.js";
 
 /**
+ * The last reason we printed, so a standing condition is stated ONCE rather
+ * than on every handshake.
+ *
+ * `buildMcpCapability` runs on every hello — and the node reconnects on its own
+ * schedule, so "Docker is not running" scrolled past a lender dozens of times
+ * for a fact that had not changed since the first line. The warning is correct
+ * and worth printing; repeating it is what made the node's log unreadable and
+ * trained its owner to ignore it.
+ *
+ * KEYED BY THE MESSAGE, not by a boolean, so a reason that CHANGES (runtime
+ * missing → runtime present but unreachable → config error) is still reported.
+ * Cleared on success, so a recurrence after a recovery is announced again — the
+ * silence only ever covers an unbroken run of the identical condition.
+ */
+let lastWarnedReason = null;
+
+function warnOnce(log, reason) {
+  if (reason === lastWarnedReason) return;
+  lastWarnedReason = reason;
+  log?.warn?.(reason);
+}
+
+/** Test helper — forget what has been warned about. */
+export function __resetMcpWarnState() {
+  lastWarnedReason = null;
+}
+
+/**
  * The `mcpServers` array for the hello payload, plus why it is empty when it is.
  *
  * Returns `{ servers, runtime, reason }`. `reason` is null when servers are
@@ -40,16 +68,22 @@ export function buildMcpCapability({ detect = detectRuntime, load = enabledMcpSe
   } catch (e) {
     // A malformed config must not take down the node's provider relaying. It
     // is loud on the node's own log and invisible on the wire.
-    log?.warn?.(`[MCP] ignoring mcp-servers.json: ${e.message}`);
+    warnOnce(log, `[MCP] ignoring mcp-servers.json: ${e.message}`);
     return { servers: [], runtime: null, reason: e.message };
   }
-  if (declared.length === 0) return { servers: [], runtime: null, reason: null };
+  if (declared.length === 0) {
+    lastWarnedReason = null;
+    return { servers: [], runtime: null, reason: null };
+  }
 
   const runtime = detect();
   if (!runtime.ok) {
-    log?.warn?.(`[MCP] not advertising ${declared.length} declared MCP server(s): ${runtime.message}`);
+    warnOnce(log, `[MCP] not advertising ${declared.length} declared MCP server(s): ${runtime.message}`);
     return { servers: [], runtime, reason: runtime.message };
   }
+
+  // Advertising again — a later relapse is news, so let it be said out loud.
+  lastWarnedReason = null;
 
   return {
     servers: declared.map((s) => {
