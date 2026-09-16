@@ -1,14 +1,16 @@
 /**
- * Bring-your-own-key providers: the hand-maintained list, the merge that decides
- * which entries a node can actually serve, and the key check that runs before
- * anything is uploaded.
+ * Bring-your-own-key providers: the entries a lender pastes a key into, the merge
+ * that decides which entries a node can actually serve, and the key check that
+ * runs before anything is uploaded.
  *
- * THE FAILURE MODE THIS FILE GUARDS is quiet in every direction. A BYOK entry is
- * hand-written, so nothing regenerates it and nothing type-checks it; a wrong
- * `host` produces capacity a node refuses to dial, a wrong `verifyUrl` checks the
- * key against one provider and relays it to another, and a `network` error
- * misread as a rejection tells a lender their perfectly good key is invalid. None
- * of those crash. Each one just makes the product wrong for one person at a time.
+ * THE FAILURE MODE THIS FILE GUARDS is quiet in every direction. A wrong `host`
+ * produces capacity a node refuses to dial, a wrong `verifyUrl` checks the key
+ * against one provider and relays it to another, and a `network` error misread as
+ * a rejection tells a lender their perfectly good key is invalid. None of those
+ * crash. Each one just makes the product wrong for one person at a time. These
+ * rows are generated from the relay's registry now rather than hand-written here,
+ * which fixes the drift but not one of those failures — a regeneration can still
+ * move a host out from under the allowlist.
  *
  * The other property asserted here is a NEGATIVE one, and it is the security
  * control: this merge can only ever intersect with the generated egress
@@ -17,9 +19,8 @@
 
 import { describe, expect, it } from "bun:test";
 
-import { BYOK_PROVIDERS, BYOK_IDS, isByok } from "../src/providers/byok.js";
 import {
-  PROVIDERS, PROVIDER_IDS, UNSERVABLE_BYOK, getProvider, isApiKeyProvider,
+  PROVIDERS, PROVIDER_IDS, UNSERVABLE_OAUTH_EXTRA, getProvider, isApiKeyProvider,
 } from "../src/providers/index.js";
 import { PROVIDER_HOSTS } from "../src/relay/provider-hosts.js";
 import { isLinkable, needsApiKey, linkProvider } from "../src/providers/flows.js";
@@ -44,18 +45,26 @@ const status = (code) => stubFetch(async () => new Response("nope", { status: co
 
 const OPENROUTER = getProvider("openrouter");
 
+/** Every key-based entry, whichever file it came from. */
+const KEYED = PROVIDERS.filter((p) => p.flow === "apikey");
+
 // ---------------------------------------------------------------------------
 
-describe("the hand-maintained list", () => {
+describe("the key-based entries", () => {
+  it("offers any at all", () => {
+    // A regeneration that emitted none would remove `aile connect groq` without
+    // one error message anywhere.
+    expect(KEYED.length).toBeGreaterThan(0);
+  });
+
   it("every entry declares the three things the flow needs", () => {
-    for (const p of BYOK_PROVIDERS) {
+    for (const p of KEYED) {
       expect({
         id: p.id,
-        flow: p.flow,
         hasName: Boolean(p.name),
         hasHost: Boolean(p.apiKey?.host),
         hasVerifyUrl: Boolean(p.apiKey?.verifyUrl),
-      }).toEqual({ id: p.id, flow: "apikey", hasName: true, hasHost: true, hasVerifyUrl: true });
+      }).toEqual({ id: p.id, hasName: true, hasHost: true, hasVerifyUrl: true });
     }
   });
 
@@ -63,64 +72,55 @@ describe("the hand-maintained list", () => {
     // A mismatch is the nastiest bug this file can catch: the key checks out
     // against one provider and is then relayed to a different one, so the lender
     // is told it works and every buyer request 401s.
-    for (const p of BYOK_PROVIDERS) {
+    for (const p of KEYED) {
       expect({ id: p.id, host: new URL(p.apiKey.verifyUrl).hostname })
         .toEqual({ id: p.id, host: p.apiKey.host });
     }
   });
 
   it("only ever speaks https, to the provider and to the lender", () => {
-    for (const p of BYOK_PROVIDERS) {
+    for (const p of KEYED) {
       expect({ id: p.id, verify: new URL(p.apiKey.verifyUrl).protocol }).toEqual({ id: p.id, verify: "https:" });
       if (p.apiKey.keyUrl) {
         expect({ id: p.id, keyUrl: new URL(p.apiKey.keyUrl).protocol }).toEqual({ id: p.id, keyUrl: "https:" });
       }
     }
   });
-
-  it("has no duplicate ids", () => {
-    expect(BYOK_IDS.length).toBe(new Set(BYOK_IDS).size);
-  });
-
-  it("isByok agrees with the list it is derived from", () => {
-    for (const p of BYOK_PROVIDERS) expect({ id: p.id, byok: isByok(p.id) }).toEqual({ id: p.id, byok: true });
-    expect(isByok("codex")).toBe(false);
-    expect(isByok("nonsense")).toBe(false);
-  });
 });
 
 describe("the merged view", () => {
-  it("cannot widen the egress allowlist — every served BYOK host is already in it", () => {
+  it("cannot widen the egress allowlist — every served key host is already in it", () => {
     // The whole point of provider-hosts.js being generated and baked at build
-    // time is that no hand-maintained file can add to it. If this ever fails,
-    // a hand-written entry has become a host a node will dial.
-    const served = PROVIDERS.filter((p) => p.flow === "apikey");
-    for (const p of served) {
+    // time is that no hand-maintained file can add to it. If this ever fails, an
+    // entry has become a host a node will dial without the allowlist saying so.
+    for (const p of KEYED) {
       expect({ id: p.id, allowed: PROVIDER_HOSTS.has(p.apiKey.host) })
         .toEqual({ id: p.id, allowed: true });
     }
   });
 
-  it("drops an entry only when its host really is absent from the allowlist", () => {
-    // Dropped is the honest outcome for unservable capacity, but a drop for any
-    // OTHER reason would silently remove a provider a lender can see documented.
-    for (const p of UNSERVABLE_BYOK) {
-      const collides = PROVIDER_IDS.includes(p.id) && getProvider(p.id)?.flow !== "apikey";
-      expect({ id: p.id, justified: collides || !PROVIDER_HOSTS.has(p.apiKey.host) })
+  it("drops a hand-written entry only for a reason the merge actually has", () => {
+    // Dropped is the honest outcome for unservable capacity or for an entry the
+    // generator has taken over, but a drop for any OTHER reason would silently
+    // remove a provider a lender can see documented.
+    for (const p of UNSERVABLE_OAUTH_EXTRA) {
+      const shadowed = PROVIDER_IDS.includes(p.id);
+      const host = p.apiKey?.host || (p.transport?.baseUrl && new URL(p.transport.baseUrl).host);
+      expect({ id: p.id, justified: shadowed || !PROVIDER_HOSTS.has(host) })
         .toEqual({ id: p.id, justified: true });
     }
   });
 
   it("still offers key-based providers at all", () => {
     // A regenerated provider-hosts.js that no longer lists these would remove
-    // every BYOK provider from `aile connect` without one error message. This
-    // asserts the feature exists, not merely that the filter runs.
+    // every key-based provider from `aile connect` without one error message.
+    // This asserts the feature exists, not merely that the filter runs.
     for (const id of ["openrouter", "groq"]) {
       expect({ id, offered: PROVIDER_IDS.includes(id) }).toEqual({ id, offered: true });
     }
   });
 
-  it("finds a BYOK provider by id, alongside the generated ones", () => {
+  it("finds a key-based provider by id, alongside the OAuth ones", () => {
     expect(getProvider("openrouter")?.name).toBe("OpenRouter");
     expect(getProvider("codex")).toBeTruthy();
     expect(getProvider("no-such-provider")).toBeNull();

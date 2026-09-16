@@ -18,7 +18,6 @@
     "build": "bun run scripts/build.js",
     "dev": "bun run src/cli/index.js",
     "test": "bun test --isolate",
-    "sync-providers": "bun run scripts/sync-providers.js",
     "prepublishOnly": "bun run build"
   },
   "keywords": [

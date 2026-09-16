@@ -226,6 +226,9 @@ describe("the Google-family authorize URL", () => {
     expect(google.map((p) => p.id)).toContain("gemini-cli");
   });
 
+  /** Google-family providers whose scope asks for `openid`. See the test below. */
+  const ATTESTABLE = new Set(["gemini-cli"]);
+
   for (const p of google) {
     it(`asks ${p.id} for a refresh token it will actually issue`, async () => {
       const url = await authorizeUrlFor(p.id);
@@ -241,13 +244,19 @@ describe("the Google-family authorize URL", () => {
       expect(paramsOf(url).client_id).toMatch(/\.apps\.googleusercontent\.com$/);
     });
 
-    it(`asks ${p.id} for openid, or the id_token attestation cannot happen`, async () => {
-      // The server requires a verified id_token for these providers, so a
-      // missing `openid` is a hard link failure after the lender has already
-      // granted consent — not a quiet downgrade.
-      const url = await authorizeUrlFor(p.id);
-      expect(paramsOf(url).scope).toContain("openid");
-      expect(paramsOf(url).nonce).toBe("server-chosen-nonce");
+    it(`asks ${p.id} for openid exactly when the relay can attest it`, async () => {
+      // `openid` is what makes Google mint the id_token the server attests the
+      // account link with, and a nonce is meaningless without one — an
+      // unrecognised parameter is something a strict authorization server may
+      // refuse outright. Pinned BY NAME in both directions, because either drift
+      // is silent: gemini-cli losing the scope downgrades every link to
+      // unproven, and antigravity regaining it re-opens the first-party consent
+      // screen that hangs (the relay dropped it for exactly that reason — see
+      // its overlay in apps/api/src/lib/providers/registry/antigravity).
+      const q = paramsOf(await authorizeUrlFor(p.id));
+      const attestable = ATTESTABLE.has(p.id);
+      expect({ id: p.id, openid: /(^|\s)openid(\s|$)/.test(q.scope), nonce: q.nonce })
+        .toEqual({ id: p.id, openid: attestable, nonce: attestable ? "server-chosen-nonce" : undefined });
     });
   }
 });

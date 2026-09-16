@@ -304,12 +304,16 @@ describe("the providers we can actually check", () => {
   });
 
   it("prefers the generated catalog's own endpoint over the hand-written table", () => {
-    // The registry-derived URL is refreshed by the sync script; a URL written
-    // here rots silently.
-    expect(probeTarget(getProvider("github")).url).toBe("https://api.github.com/user");
+    // The generated URL tracks the relay's registry; one written here rots
+    // silently. Asserted against a synthetic entry because the relay carries no
+    // `userInfoUrl` at all today — it removed the two it had as worthless (a
+    // probe that cannot fail) and wrong (a URL that only authenticates in the
+    // query string). The precedence is the rule; the row count is data.
+    const target = probeTarget({ ...getProvider("claude"), oauth: { userInfoUrl: "https://example.test/me" } });
+    expect(target.url).toBe("https://example.test/me");
   });
 
-  it("reuses the key-verification endpoint byok.js already maintains", () => {
+  it("reuses the key-verification endpoint the catalog already carries", () => {
     // Not a second URL for the same question. `verifyUrl` is fetched on every
     // key link, so it is the best-tested endpoint we have for these providers,
     // and one notion of "does this credential work" cannot drift from itself.
@@ -323,7 +327,7 @@ describe("the providers we can actually check", () => {
     // https://openrouter.ai/api/v1/models answers 200 with NO credential, so a
     // probe against it would pass for any garbage string — the exact "guessed a
     // URL" failure this module's PROBES comment warns about. /api/v1/key is
-    // authenticated, and is what byok.js already verifies keys against.
+    // authenticated, and is what the key link already verifies keys against.
     expect(probeTarget(getProvider("openrouter")).url).toBe("https://openrouter.ai/api/v1/key");
   });
 

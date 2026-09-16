@@ -459,7 +459,7 @@ describe("the catalog agrees with itself", () => {
       // isLinkable is what `aile connect` filters on; it must agree with the
       // dispatch table rather than being a second, drifting list.
       expect({ id, linkable: isLinkable(id) })
-        .toEqual({ id, linkable: ["authcode", "device", "google"].includes(p.flow) });
+        .toEqual({ id, linkable: ["authcode", "device", "google", "apikey"].includes(p.flow) });
     }
   });
 

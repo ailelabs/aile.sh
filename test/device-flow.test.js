@@ -64,12 +64,17 @@ function stubProvider(routes) {
  * be seen. Only URLs and the poll interval move — the request shape under test
  * stays exactly the one the generator produced.
  *
+ * A field name may be dotted (`deviceStyle.initiate.url`), because the generated
+ * catalog bakes absolute endpoints into the `deviceStyle` request shapes rather
+ * than pointing them at a top-level field. Without that, redirecting a provider
+ * silently redirected nothing and the test dialled the real provider.
+ *
  * The interval is overridden because these flows really do sleep between polls
  * (3–5 seconds, which is what the providers ask for) and a test that waited
  * would be measuring `setTimeout`. Nothing about the wire format depends on it.
- * `deviceStyle` is replaced with a copy rather than edited in place, so the
- * restore below — which puts back the top level — cannot leave a mutated nested
- * object behind for the next test to inherit.
+ * `deviceStyle` is deep-copied rather than edited in place, so the restore below
+ * — which puts back the top level — cannot leave a mutated nested object behind
+ * for the next test to inherit.
  */
 const restores = [];
 function redirect(providerId, base, fields, { paceMs = 5 } = {}) {
@@ -79,9 +84,13 @@ function redirect(providerId, base, fields, { paceMs = 5 } = {}) {
     for (const k of Object.keys(o)) delete o[k];
     Object.assign(o, saved);
   });
-  for (const [field, path] of Object.entries(fields)) o[field] = base + path;
+  if (o.deviceStyle) o.deviceStyle = { ...structuredClone(o.deviceStyle), intervalMs: paceMs };
+  for (const [field, path] of Object.entries(fields)) {
+    const keys = field.split(".");
+    const target = keys.slice(0, -1).reduce((v, k) => v[k], o);
+    target[keys.at(-1)] = base + path;
+  }
   o.pollInterval = paceMs;
-  if (o.deviceStyle) o.deviceStyle = { ...o.deviceStyle, intervalMs: paceMs };
   return o;
 }
 afterEach(() => { while (restores.length) restores.pop()(); });
@@ -214,6 +223,21 @@ describe("GitHub", () => {
 // Device-SHAPED flows that are not RFC 8628 at all
 // ---------------------------------------------------------------------------
 
+/**
+ * Where each of these two keeps its endpoints. Both bake an absolute URL into
+ * the `deviceStyle` request shape, so redirecting the top-level field the entry
+ * still carries would move nothing. `@deviceCode` is left in the poll path for
+ * the flow to resolve — that substitution is part of what is under test.
+ */
+const KILOCODE = {
+  "deviceStyle.initiate.url": "/codes",
+  "deviceStyle.poll.url": "/codes/@deviceCode",
+};
+const CODEBUDDY = {
+  "deviceStyle.initiate.url": "/state?platform=CLI",
+  tokenUrl: "/token",
+};
+
 describe("Kilocode", () => {
   function stub() {
     return stubProvider({
@@ -229,7 +253,7 @@ describe("Kilocode", () => {
     // before; it has no registered client and does not read a body.
     const s = stub();
     try {
-      redirect("kilocode", s.base, { initiateUrl: "/codes", pollUrlBase: "/codes" });
+      redirect("kilocode", s.base, KILOCODE);
       await run("kilocode").done;
       expect(s.calls[0].method).toBe("POST");
       expect(s.calls[0].headers["content-type"]).toContain("application/json");
@@ -241,7 +265,7 @@ describe("Kilocode", () => {
   it("polls by path — the code goes in the URL, not a body", async () => {
     const s = stub();
     try {
-      redirect("kilocode", s.base, { initiateUrl: "/codes", pollUrlBase: "/codes" });
+      redirect("kilocode", s.base, KILOCODE);
       await run("kilocode").done;
       expect(s.calls[1].path).toBe("/codes/dc-kilo");
       expect(s.calls[1].method).toBe("GET");
@@ -253,7 +277,7 @@ describe("Kilocode", () => {
     // and approval is a field inside a 200 rather than the 200 itself.
     const s = stub();
     try {
-      redirect("kilocode", s.base, { initiateUrl: "/codes", pollUrlBase: "/codes" });
+      redirect("kilocode", s.base, KILOCODE);
       const tokens = await run("kilocode").done;
       expect(tokens.accessToken).toBe("at-kilo");
       expect(s.calls.filter((c) => c.path === "/codes/dc-kilo")).toHaveLength(2);
@@ -268,7 +292,7 @@ describe("Kilocode", () => {
         : Response.json({ status: "approved", token: "at-late" })),
     });
     try {
-      redirect("kilocode", s.base, { initiateUrl: "/codes", pollUrlBase: "/codes" });
+      redirect("kilocode", s.base, KILOCODE);
       expect((await run("kilocode").done).accessToken).toBe("at-late");
     } finally { s.stop(); }
   });
@@ -279,7 +303,7 @@ describe("Kilocode", () => {
       "/codes/dc-kilo": () => new Response(null, { status: 403 }),
     });
     try {
-      redirect("kilocode", s.base, { initiateUrl: "/codes", pollUrlBase: "/codes" });
+      redirect("kilocode", s.base, KILOCODE);
       await expect(run("kilocode").done).rejects.toThrow(/denied/i);
     } finally { s.stop(); }
   });
@@ -298,7 +322,7 @@ describe("CodeBuddy", () => {
   it("starts at all — it has no device endpoint and used to die here", async () => {
     const s = stub();
     try {
-      redirect("codebuddy-cn", s.base, { stateUrl: "/state", tokenUrl: "/token" });
+      redirect("codebuddy-cn", s.base, CODEBUDDY);
       const tokens = await run("codebuddy-cn").done;
       expect(tokens.accessToken).toBe("at-cb");
       expect(tokens.refreshToken).toBe("rt-cb");
@@ -308,7 +332,7 @@ describe("CodeBuddy", () => {
   it("carries the routing headers Tencent requires instead of a client_id", async () => {
     const s = stub();
     try {
-      redirect("codebuddy-cn", s.base, { stateUrl: "/state", tokenUrl: "/token" });
+      redirect("codebuddy-cn", s.base, CODEBUDDY);
       await run("codebuddy-cn").done;
       for (const call of s.calls) {
         expect(call.headers["x-requested-with"]).toBe("XMLHttpRequest");
@@ -322,7 +346,7 @@ describe("CodeBuddy", () => {
   it("puts the platform on the initiate and the state on the poll", async () => {
     const s = stub();
     try {
-      redirect("codebuddy-cn", s.base, { stateUrl: "/state", tokenUrl: "/token" });
+      redirect("codebuddy-cn", s.base, CODEBUDDY);
       await run("codebuddy-cn").done;
       expect(s.calls[0].query.platform).toBe("CLI");
       expect(s.calls[1].method).toBe("GET");
@@ -335,7 +359,7 @@ describe("CodeBuddy", () => {
     // treating a 200 as success would link an unapproved account.
     const s = stub();
     try {
-      redirect("codebuddy-cn", s.base, { stateUrl: "/state", tokenUrl: "/token" });
+      redirect("codebuddy-cn", s.base, CODEBUDDY);
       await run("codebuddy-cn").done;
       expect(s.calls.filter((c) => c.path === "/token")).toHaveLength(2);
     } finally { s.stop(); }
@@ -350,7 +374,7 @@ describe("CodeBuddy", () => {
       "/token": () => Response.json({ code: 0, data: { accessToken: "at-cb" } }),
     });
     try {
-      redirect("codebuddy-cn", s.base, { stateUrl: "/state", tokenUrl: "/token" });
+      redirect("codebuddy-cn", s.base, CODEBUDDY);
       await run("codebuddy-cn").done;
       expect(s.calls[1].query.state).toBe("a&b=c d");
     } finally { s.stop(); }
@@ -362,7 +386,7 @@ describe("CodeBuddy", () => {
       "/token": () => Response.json({ code: 40001, msg: "session expired" }),
     });
     try {
-      redirect("codebuddy-cn", s.base, { stateUrl: "/state", tokenUrl: "/token" });
+      redirect("codebuddy-cn", s.base, CODEBUDDY);
       await expect(run("codebuddy-cn").done).rejects.toThrow(/session expired/);
     } finally { s.stop(); }
   });

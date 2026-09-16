@@ -188,18 +188,19 @@ bun install
 bun test                                    # unit + integration
 bun run dev -- status                       # run from source
 bun run build                               # → dist/cli.js
-bun run sync-providers /path/to/registry    # regenerate catalog + allowlist
 ```
 
-`sync-providers` regenerates `src/providers/catalog.js` and
-`src/relay/provider-hosts.js`. Both ship as static data, so neither the set of
-connectable accounts nor a machine's egress policy can widen at runtime.
+`src/providers/catalog.js` and `src/relay/provider-hosts.js` are GENERATED from
+the aile relay's own provider registry and committed here — regenerate them from
+that repo with `bun run scripts/build-cli-catalog.ts` (in `apps/api`), not by
+hand. Both ship as static data, so neither the set of connectable accounts nor a
+machine's egress policy can widen at runtime.
 
-Key-based providers have no OAuth endpoints to vendor, so `src/providers/byok.js`
-carries them by hand and `src/providers/index.js` merges them with the generated
-catalog. That merge can only intersect with the egress allowlist: a hand-written
-entry naming a host the allowlist lacks is dropped rather than added.
-`test/byok.test.js` asserts that direction.
+`src/providers/oauth-extra.js` carries the few providers the generator cannot
+emit, and `src/providers/index.js` merges them with the generated catalog. That
+merge can only intersect with the egress allowlist: a hand-written entry naming a
+host the allowlist lacks is dropped rather than added, and a generated entry
+always wins over a hand-written one with the same id.
 
 Tests run against a sandboxed data dir (`test/setup.js`, preloaded via
 `bunfig.toml`) and never touch a real `~/.aile`.
