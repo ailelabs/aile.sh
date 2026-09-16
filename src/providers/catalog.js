@@ -347,7 +347,7 @@ export const PROVIDERS = [
           "body": {}
         },
         "poll": {
-          "url": "=https://api.kilo.ai/api/device-auth/codes/@deviceCode",
+          "url": "https://api.kilo.ai/api/device-auth/codes/@deviceCode",
           "method": "GET"
         },
         "map": {
