@@ -10,6 +10,31 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Changed
+
+- The provider catalog and the node egress allowlist are generated from the aile
+  relay's own provider registry rather than vendored from a third-party one, so a
+  correction made server-side now reaches this client. Nothing changes about what
+  you can lend: the same 23 providers link, by the same flows.
+
+### Added
+
+- `raycast`, `trae` and `windsurf` appear in `aile connect` under "not yet
+  supported". They need a manual token, like `cursor` and `gitlab` already did.
+
+### Fixed
+
+- `aile connect antigravity` no longer requests Google's `openid` scope, which
+  was routing consent into a first-party screen that hangs. The account links;
+  the trade is that it is no longer attested.
+
+### Removed
+
+- The credential probe for GitHub Copilot, Gemini CLI and iFlow. Google's
+  answered 200 for any live token, so it could not fail; iFlow's only
+  authenticates with the token in the query string and was never sent that way.
+  A probe that cannot say no was telling you nothing.
+
 ## [1.0.0]
 
 First published release. The CLI surface below is now stable, and a break in it
