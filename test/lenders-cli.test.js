@@ -377,6 +377,29 @@ describe("the table", () => {
     } finally { srv.stop(); }
   });
 
+  it("shows the /v1 model with its provider, since a bare id is a 400", async () => {
+    // Filled in like the headers: row 1's first provider and the model asked for.
+    const srv = stubServer();
+    try {
+      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      expect(res.stdout).toContain('"model": "claude/claude-opus-5"');
+      expect(res.stdout).toContain("local/<model>");
+    } finally { srv.stop(); }
+  });
+
+  it("addresses self-hosted capacity as local/, not by its listing name", async () => {
+    const srv = stubServer({
+      market: {
+        ...UNPRICED,
+        lenders: [{ ...UNPRICED.lenders[0], providers: [{ provider: "self-hosted", models: ["llama3"], verified: false, live: true, accounts: 1 }] }],
+      },
+    });
+    try {
+      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      expect(res.stdout).toContain('"model": "local/llama3"');
+    } finally { srv.stop(); }
+  });
+
   it("SAYS WHICH FLAGS HAVE NO HEADER, rather than leaving one to be invented", async () => {
     // `--sort` changes what you read and nothing about routing. Without saying
     // so, a reader invents `x-aile-sort`, sends it, and it is ignored in silence.

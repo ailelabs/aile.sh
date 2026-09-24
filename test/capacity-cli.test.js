@@ -273,6 +273,25 @@ describe("nothing lent yet", () => {
     expect(stdout).toMatch(/not lending anything/i);
     expect(stdout).toMatch(/aile connect/);
     expect(stdout).toMatch(/aile local/);
+    expect(stdout).toContain("local/<model>");
+  });
+});
+
+describe("aile local — how buyers reach it", () => {
+  it("prints the local/ id buyers send, beside the raw id the node advertises", async () => {
+    const data = signedInData(stub.url, { localModels: "llama3,mistral" });
+    const { stdout, code } = await run(["local", "http://127.0.0.1:11434"], { data });
+    expect(code).toBe(0);
+    expect(stdout).toContain("Advertising: llama3, mistral");
+    expect(stdout).toContain("local/llama3, local/mistral");
+  });
+
+  it("shows the same on the state view", async () => {
+    const data = signedInData(stub.url, {
+      localEnabled: true, localEndpoint: "http://127.0.0.1:11434", localModels: "llama3",
+    });
+    const { stdout } = await run(["local"], { data });
+    expect(stdout).toContain("local/llama3");
   });
 });
 

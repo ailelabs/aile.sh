@@ -185,9 +185,9 @@ no `rates` command takes an account number.
 
 ```bash
 aile rates                                       # margin, overrides, disabled models, bounds
-aile rates --margin 1.2                          # multiplier on every provider's list price
-aile rates set claude-opus-5 --in 3 --out 15     # dollars per million tokens
-aile rates set claude-opus-5 --model-margin 1.5  # a multiplier for one model instead
+aile rates --margin 0.9                          # 0 (free) to 1 (list price), on every model
+aile rates set claude-opus-5 --in 3 --out 15     # dollars per million tokens, up to list
+aile rates set claude-opus-5 --model-margin 0.8  # a multiplier for one model instead
 aile rates clear claude-opus-5                   # back to the global margin
 aile rates off claude-opus-5                     # stop serving one model
 aile rates on claude-opus-5                      # serve it again
@@ -195,10 +195,10 @@ aile rates on claude-opus-5                      # serve it again
 
 | Flag | What it does |
 |---|---|
-| `--margin <x>` | Global multiplier on list price. `0` means **unset**, not free. |
-| `--in <usd>` | Input price, dollars per million tokens (with `set`). |
-| `--out <usd>` | Output price, dollars per million tokens (with `set`). |
-| `--model-margin <x>` | Per-model multiplier instead of an absolute price (with `set`). |
+| `--margin <x>` | Global multiplier on list price, `0` (free) to `1` (list). Above `1` is refused. |
+| `--in <usd>` | Input price, dollars per million tokens (with `set`). At most list. |
+| `--out <usd>` | Output price, dollars per million tokens (with `set`). At most list. |
+| `--model-margin <x>` | Per-model multiplier instead of an absolute price (with `set`), `0` to `1`. |
 
 `disabled` is kept separate from price, so clearing a price never re-enables a
 model you turned off.
@@ -236,6 +236,9 @@ aile local --off                    # stop lending it; the endpoint is remembere
 
 The endpoint is validated before it is saved and constrained to **loopback or LAN
 addresses**. A public value would turn the node into an open proxy.
+
+Buyers send `local/<model>`. The relay strips `local/`, so your endpoint sees the
+id it advertised.
 
 > [!WARNING]
 > **Self-hosted traffic is not blind**
@@ -339,6 +342,11 @@ says so.
 > `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender` and
 > `x-aile-node`, so a choice you make here is one you can act on in a request. See
 > [Headers](https://aile.sh/docs/reference/headers). **`--seller` is the person; `--node` is the box.**
+
+A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
+`local/llama3`), or a bare id with `x-aile-provider`, which names the provider and
+sends the id upstream as written. A bare id alone is a 400. `--model` here and
+`aile price` still take bare ids.
 
 ### price
 

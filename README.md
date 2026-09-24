@@ -51,8 +51,8 @@ aile capacity                           # all three, grouped by kind
 A **subscription** stops at its monthly ceiling. An **API key** has no ceiling:
 it bills your own account per token, so a busy week arrives as an invoice. A
 **local model** runs on your hardware, which means your machine reads those
-prompts; buyers ask for local capacity by name and never receive it in place of
-the other two.
+prompts; buyers ask for it by name (`local/<model>`) and never receive it in
+place of the other two.
 
 Keys are checked with the provider before upload, so a bad paste fails here
 rather than becoming capacity that fails on every request. Nothing signs a key,
@@ -95,6 +95,10 @@ the top row is where your next request lands.
 
 Five filters have a header twin on `/v1/*`, which turns a choice you make here
 into one you can make per request.
+
+A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
+`local/llama3`), or a bare id with `x-aile-provider`. A bare id alone is a 400.
+`aile lenders --model` and `aile price` still take bare ids.
 
 [Choosing a lender →](https://aile.sh/docs/buy/routing)
 

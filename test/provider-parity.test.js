@@ -56,7 +56,7 @@ function stubServer({ accounts = ACCOUNTS, usage = null, pricing = null, probe =
         return account ? ok({ account: { ...account, ...body } }) : Response.json({ success: false, message: "no" }, { status: 404 });
       }
       if (url.pathname === "/pricing" && req.method === "GET") {
-        return ok(pricing ?? { margin: 0, models: {}, disabled: [], defaults: { margin: 1, min: 0, max: 10, maxUsdPerMtok: 1000 } });
+        return ok(pricing ?? { margin: 0, models: {}, disabled: [], defaults: { margin: 1, min: 0, max: 1, maxUsdPerMtok: 1000 } });
       }
       if (url.pathname.startsWith("/pricing") && req.method !== "GET") return ok({ ok: true });
       return Response.json({ success: false, message: "not found", error: "not found" }, { status: 404 });
@@ -256,14 +256,50 @@ describe("aile rates — what this lender charges", () => {
 
   it("prints the bounds, so a refusal is explicable before it happens", async () => {
     const { stdout } = await run(["rates"], { data });
-    expect(stdout).toMatch(/Allowed: 0 to 10/);
+    expect(stdout).toMatch(/Allowed: 0 to 1 /);
   });
 
   it("sets the global margin", async () => {
-    await run(["rates", "--margin", "1.2"], { data });
+    await run(["rates", "--margin", "0.9"], { data });
     expect(stub.calls.find((c) => c.method === "PATCH")).toMatchObject({
-      path: "/pricing", body: { margin: 1.2 },
+      path: "/pricing", body: { margin: 0.9 },
     });
+  });
+
+  it("sets a margin of 0, which is free", async () => {
+    await run(["rates", "--margin", "0"], { data });
+    expect(stub.calls.find((c) => c.method === "PATCH")).toMatchObject({
+      path: "/pricing", body: { margin: 0 },
+    });
+  });
+
+  it("refuses a margin above list price, with a reason, without writing", async () => {
+    // The server's MAX_MARGIN is 1: nobody sells above retail.
+    const { code, all } = await run(["rates", "--margin", "1.2"], { data });
+    expect(code).not.toBe(0);
+    expect(all).toMatch(/0 to 1/);
+    expect(stub.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("refuses a negative margin without writing", async () => {
+    const { code } = await run(["rates", "--margin=-0.5"], { data });
+    expect(code).not.toBe(0);
+    expect(stub.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("refuses a per-model margin above list price without writing", async () => {
+    const { code, all } = await run(["rates", "set", "claude-opus-5", "--model-margin", "1.5"], { data });
+    expect(code).not.toBe(0);
+    expect(all).toMatch(/0 to 1/);
+    expect(stub.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+  });
+
+  it("shows a margin deliberately set to 0 as free, not as the default", async () => {
+    stub.stop();
+    stub = stubServer({ pricing: { margin: 0, marginSet: true, models: {}, disabled: [], defaults: { margin: 1, min: 0, max: 1 } } });
+    const { stdout } = await run(["rates"], { data: signedInData(stub.url) });
+    expect(stdout).toContain("×0");
+    expect(stdout).not.toMatch(/you have not set one/i);
   });
 
   it("sets a per-model price in dollars per million tokens", async () => {

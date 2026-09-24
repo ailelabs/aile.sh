@@ -764,7 +764,8 @@ async function cmdCapacity(args) {
   if (!accounts.length && !localConfigured) {
     console.log(`\n${C.dim}This machine is not lending anything yet.${C.reset}\n`);
     console.log(`  Connect an account:   ${C.cyan}aile connect${C.reset}`);
-    console.log(`  Lend a local model:   ${C.cyan}aile local http://127.0.0.1:11434${C.reset}\n`);
+    console.log(`  Lend a local model:   ${C.cyan}aile local http://127.0.0.1:11434${C.reset}`);
+    console.log(`  ${C.dim}Buyers reach it as ${C.reset}${C.cyan}local/<model>${C.reset}\n`);
     return;
   }
 
@@ -1024,9 +1025,10 @@ async function cmdUsage(args) {
  * room for one. Nothing here takes an account number, and it must not start to:
  * offering one would imply a control that does not exist.
  *
- * A margin is a multiplier on the provider's own list price; a per-model override
- * replaces that with dollars per million tokens. `disabled` is deliberately separate
- * from price on the server, so clearing a price cannot quietly re-enable a model the
+ * A margin is a multiplier on the provider's own list price, 0 (free) to 1 (list);
+ * nobody sells above retail. A per-model override replaces that with dollars per
+ * million tokens, also capped at list. `disabled` is deliberately separate from
+ * price on the server, so clearing a price cannot quietly re-enable a model the
  * lender turned off.
  */
 async function cmdRates(args) {
@@ -1040,11 +1042,10 @@ async function cmdRates(args) {
   const verb = String(args._[1] || "").toLowerCase();
   const model = args._[2] ? String(args._[2]) : null;
 
-  // --margin is a change, not a subcommand: `aile rates --margin 1.2` reads better
-  // than `aile rates margin set 1.2` and there is only ever one global multiplier.
+  // --margin is a change, not a subcommand: `aile rates --margin 0.9` reads better
+  // than `aile rates margin set 0.9` and there is only ever one global multiplier.
   if (args.margin !== undefined) {
-    const margin = Number(args.margin);
-    if (!Number.isFinite(margin)) die("A margin is a number.", "Try `aile rates --margin 1.2`.");
+    const margin = checkMargin(args.margin, "--margin");
     await callRates(() => api.setMargin({ margin, ...opts }));
     console.log(`\n${C.green}Margin set to ${margin}.${C.reset} ${C.dim}Applies to every model with no price of its own.${C.reset}\n`);
     return;
@@ -1054,7 +1055,7 @@ async function cmdRates(args) {
     if (!model) die("Which model?", "Try `aile rates set claude-opus-5 --in 3 --out 15`.");
     const inUsd = args.in !== undefined ? Number(args.in) : null;
     const outUsd = args.out !== undefined ? Number(args.out) : null;
-    const margin = args["model-margin"] !== undefined ? Number(args["model-margin"]) : null;
+    const margin = args["model-margin"] !== undefined ? checkMargin(args["model-margin"], "--model-margin") : null;
     if (inUsd === null && outUsd === null && margin === null) {
       die(
         "Set what?",
@@ -1099,10 +1100,10 @@ async function cmdRates(args) {
 
   const d = p.defaults || {};
   console.log(`\n${C.bold}What you charge${C.reset}\n`);
-  // A margin of 0 is what an untouched account reads as, and it does NOT mean
-  // "free" — it means nothing has been set, so the default applies. Saying so
-  // beats printing a zero that looks like a giveaway.
-  const usingDefault = !p.margin;
+  // An untouched account is on the deployment default, and saying so beats a bare
+  // number. `marginSet` tells "never set" from a deliberate 0 (free); an older
+  // server without it sent 0 for "never set".
+  const usingDefault = p.marginSet === undefined ? !p.margin : !p.marginSet;
   console.log(`  Margin  ${C.bold}×${usingDefault ? (d.margin ?? 1) : p.margin}${C.reset}`
     + (usingDefault ? `  ${C.dim}(the default — you have not set one)${C.reset}` : ""));
   console.log(`  ${C.dim}A multiplier on each provider's own list price.${C.reset}`);
@@ -1133,7 +1134,7 @@ async function cmdRates(args) {
     for (const m of off) console.log(`  ${C.yellow}${m}${C.reset}`);
   }
 
-  console.log(`\n${C.dim}Change it:  ${C.reset}${C.cyan}aile rates --margin 1.2${C.reset}`);
+  console.log(`\n${C.dim}Change it:  ${C.reset}${C.cyan}aile rates --margin 0.9${C.reset}`);
   console.log(`${C.dim}One model:  ${C.reset}${C.cyan}aile rates set <model> --in 3 --out 15${C.reset}`);
   console.log(`${C.dim}Stop one:   ${C.reset}${C.cyan}aile rates off <model>${C.reset}\n`);
 }
@@ -1151,6 +1152,18 @@ async function callRates(run) {
   } catch (e) {
     die(`That price was refused: ${e.message}`, "See `aile rates` for the allowed range.");
   }
+}
+
+/**
+ * A margin, refused here when it is outside 0–1 so a markup never reaches the
+ * wire. The one bound worth copying: it is the marketplace's rule (at or below
+ * retail), not a tunable. The dollar caps stay the server's.
+ */
+function checkMargin(raw, flag) {
+  const m = Number(raw);
+  if (raw === true || raw === "" || !Number.isFinite(m)) die(`${flag} is a number from 0 (free) to 1 (list price).`);
+  if (m < 0 || m > 1) die(`${flag} must be 0 to 1: free up to list price, never above.`);
+  return m;
 }
 
 /**
@@ -1914,6 +1927,7 @@ async function cmdLocal(args) {
     console.log(`\n  Endpoint:  ${C.cyan}${config.localEndpoint}${C.reset}`);
     const models = await discoverLocalModels(config);
     console.log(`  Models:    ${models.length ? models.join(", ") : `${C.yellow}none found${C.reset}`}`);
+    if (models.length) console.log(`  Buyers:    ${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
     console.log(`  Privacy:   ${C.yellow}not blind${C.reset} ${C.dim}— requests run here, so this machine reads them${C.reset}\n`);
     return;
   }
@@ -1935,6 +1949,7 @@ async function cmdLocal(args) {
   const models = await discoverLocalModels(res.value);
   if (models.length) {
     console.log(`${C.dim}Advertising: ${models.join(", ")}${C.reset}`);
+    console.log(`${C.dim}Buyers send: ${C.reset}${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
   } else {
     console.log(`${C.yellow}Could not list models${C.reset} ${C.dim}at ${target.host}:${target.port}.${C.reset}`);
     console.log(`${C.dim}Start it, or name them: ${C.reset}${C.cyan}aile config localModels llama3,mistral${C.reset}`);
@@ -2212,13 +2227,21 @@ async function cmdLenders(args) {
    * so is better than leaving a reader to invent `x-aile-sort` and wonder why
    * nothing changed.
    */
+  // The body's model names its provider, or the request is a 400. Filled in from
+  // row 1 like the headers below; self-hosted is listed as "self-hosted" and
+  // addressed as `local/`.
+  const exRow = lenders[0]?.providers?.find((p) => !res.filters?.provider || p.provider === res.filters.provider);
+  const exProvider = res.filters?.provider || exRow?.provider || "<provider>";
+  const exModel = `${exProvider === "self-hosted" ? "local" : exProvider}/${res.filters?.model || exRow?.models?.[0] || "<model>"}`;
   console.log(`\n  ${C.bold}Choosing one${C.reset}`);
+  console.log(`  ${C.dim}Your ${C.reset}${C.cyan}/v1${C.reset}${C.dim} body's model must be <provider>/<model>: ${C.reset}${C.cyan}"model": "${exModel}"${C.reset}`);
+  console.log(`  ${C.dim}Self-hosted is ${C.reset}${C.cyan}local/<model>${C.reset}${C.dim}. A bare id is a 400 unless ${C.reset}${C.cyan}x-aile-provider${C.reset}${C.dim} names it.${C.reset}`);
   console.log(`  ${C.dim}Send these headers with your ${C.reset}${C.cyan}/v1${C.reset}${C.dim} request:${C.reset}`);
   console.log(`    ${C.cyan}x-aile-node:${C.reset} ${lenders[0]?.nodeId || "<machine>"}   ${C.dim}serve only from that machine${C.reset}`);
   console.log(`    ${C.cyan}x-aile-lender:${C.reset} ${lenders[0]?.handle || "<seller>"}   ${C.dim}that seller, whichever machine of theirs is free${C.reset}`);
   console.log(`    ${C.cyan}x-aile-max-price:${C.reset} 8              ${C.dim}refuse anything above $8 per million tokens${C.reset}`);
   console.log(`    ${C.cyan}x-aile-verified:${C.reset} 1               ${C.dim}attested subscriptions only${C.reset}`);
-  console.log(`    ${C.cyan}x-aile-provider:${C.reset} codex           ${C.dim}only machines offering that subscription${C.reset}`);
+  console.log(`    ${C.cyan}x-aile-provider:${C.reset} codex           ${C.dim}names the provider; the model goes upstream as its own id${C.reset}`);
   console.log(`  ${C.dim}Each one that matches nobody is refused with a 503 naming that header,${C.reset}`);
   console.log(`  ${C.dim}so a ceiling nobody meets never looks like an empty network.${C.reset}`);
   console.log(`  ${C.dim}${C.reset}${C.cyan}--min-served${C.reset}${C.dim}, ${C.reset}${C.cyan}--free${C.reset}${C.dim} and ${C.reset}${C.cyan}--sort${C.reset}${C.dim} change this listing only — no header, no routing change.${C.reset}`);
@@ -2654,8 +2677,8 @@ function usage() {
 
   ${C.bold}What you charge${C.reset}
     aile rates                        margin, per-model prices, what is off
-    aile rates --margin 1.2           a multiplier on every provider's list price
-    aile rates set <model> --in 3 --out 15    dollars per million tokens
+    aile rates --margin 0.9           0 (free) to 1 (list price), on every model
+    aile rates set <model> --in 3 --out 15    dollars per million tokens, up to list
     aile rates off <model>            stop serving one model
     ${C.dim}Prices are per model, not per account: two keys of one provider share${C.reset}
     ${C.dim}a price sheet. \`aile price <model>\` is the other direction — what a${C.reset}
@@ -2706,7 +2729,9 @@ function usage() {
     act on — ${C.reset}${C.cyan}x-aile-max-price${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-verified${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-provider${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-lender${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-node${C.reset}${C.dim}.
     --seller is the person and --node is the box: a lender may run several.
     --min-served, --free and --sort change only what you read; requests are
-    always routed cheapest-first, which is also the default order here.${C.reset}
+    always routed cheapest-first, which is also the default order here.
+    A /v1 request's model must be <provider>/<model> (cc/claude-sonnet-5,
+    local/llama3), or a bare id with x-aile-provider. A bare id alone is a 400.${C.reset}
 
   ${C.bold}What it has cost, on both sides${C.reset}
     aile stats                        your machines: requests served, earned

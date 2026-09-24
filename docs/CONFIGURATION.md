@@ -67,8 +67,8 @@ Lending a model running on your own machine. Off unless you turn it on; see
 > [!WARNING]
 > **Names are forwarded verbatim**
 >
-> There is no rename or alias layer. Whatever a buyer sends in `model` is passed to
-> your endpoint unchanged, so the names you advertise must be exactly the names your
+> Buyers send `local/<name>`; Aile strips `local/` and passes the rest to your
+> endpoint unchanged, so the names you advertise must be exactly the names your
 > endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
 > those requests will not resolve.
 

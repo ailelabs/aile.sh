@@ -65,7 +65,9 @@ const res = await fetch(`${config.serverUrl}/v1/chat/completions`, {
   method: "POST",
   headers: { authorization: `Bearer ${CANARY_KEY}`, "content-type": "application/json" },
   body: JSON.stringify({
-    model: "gpt-4o",
+    // Every /v1 request names its provider; a bare id is a 400 that never
+    // reaches a node, and the capture would prove nothing.
+    model: "openai/gpt-4o",
     messages: [{ role: "user", content: CANARY_PROMPT }],
   }),
 });

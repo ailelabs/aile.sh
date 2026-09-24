@@ -16,6 +16,17 @@ a patch bump fixes something.
   relay's own provider registry rather than vendored from a third-party one, so a
   correction made server-side now reaches this client. Nothing changes about what
   you can lend: the same 23 providers link, by the same flows.
+- `aile rates --margin` and `--model-margin` take 0 (free) to 1 (list price).
+  Anything else is refused before it reaches the server, which no longer sells
+  above retail. A per-model `--in`/`--out` above list is refused by the server.
+- `aile rates` tells a margin you set to 0 (free) from one you never set.
+- `aile lenders` and `aile --help` say a `/v1` model must name its provider:
+  `<provider>/<model>`, or a bare id with `x-aile-provider`. A bare id is a 400.
+  `x-aile-provider` now names the provider rather than only filtering lenders.
+- `aile local` shows self-hosted models as buyers address them, `local/<model>`,
+  and so does `aile capacity` when nothing is lent yet. The node still
+  advertises the raw id.
+- `scripts/live-blindness-probe.js` sends `openai/gpt-4o`, not a bare id.
 
 ### Added
 
