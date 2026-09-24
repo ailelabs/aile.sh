@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.0.1]
+
 ### Changed
 
 - The provider catalog and the node egress allowlist are generated from the aile
@@ -112,5 +114,6 @@ means a 2.0.0.
   so the tarball is bound to this repository and commit. Verify with
   `npm audit signatures`.
 
-[Unreleased]: https://github.com/ailelabs/aile.sh/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ailelabs/aile.sh/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ailelabs/aile.sh/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ailelabs/aile.sh/releases/tag/v1.0.0
