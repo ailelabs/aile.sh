@@ -593,7 +593,9 @@ describe("signIn — the browser and the paste run at the same time", () => {
 
   it("copies the sign-in URL on the advertised hotkey", async () => {
     // The offer says "(c to copy)". If the key does nothing the offer is a lie,
-    // and over SSH the printed URL is the only thing that works.
+    // and over SSH the printed URL is the only thing that works. It copies the
+    // URL printed right above it — the one carrying the code — not a bare
+    // /login, which was a different page from the one on screen.
     const copied = [];
     const reader = (question, opts = {}) => new Promise((resolve) => {
       opts.hotkeys?.c?.();                                    // the user presses c
@@ -604,7 +606,7 @@ describe("signIn — the browser and the paste run at the same time", () => {
       interactive: true, readSecret: reader,
       copy: async (text) => { copied.push(text); return true; },
     });
-    expect(copied).toEqual([`${SERVER}/login`]);
+    expect(copied).toEqual(["https://aile.test/login?code=ABCD-EFGH"]);
   });
 
   it("reports the browser's failure when BOTH ways are exhausted", async () => {

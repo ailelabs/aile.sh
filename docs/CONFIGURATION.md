@@ -33,6 +33,7 @@ Changes take effect on the next `aile start`.
 | Key | Default | What it does |
 |---|---|---|
 | `renterToken` | — | Your account token. **Read-only here**: written by `aile login`, cleared by `aile logout`, never settable through `aile config`. |
+| `buyerKey` | — | The API key your coding tools use. **Read-only here**: written by `aile setup`, cleared by `aile setup --remove` once no tool uses it. Kept by `aile config --reset`. |
 
 ## Connection
 
@@ -45,13 +46,12 @@ Changes take effect on the next `aile start`.
 | `reconnectMinMs` | `1000` | 250–60000 | Floor of the reconnect backoff. |
 | `reconnectMaxMs` | `60000` | 1000–3600000 | Ceiling of the reconnect backoff. |
 
-> [!NOTE]
-> **Retired server addresses**
->
-> Known-dead hosts are dropped from `serverUrl` on read rather than dialled, so an
-> old install does not sit retrying an address that no longer exists. If a stale
-> value is the problem, set it explicitly:
-> `aile config serverUrl https://api.aile.sh`.
+<Note title="Retired server addresses">
+Known-dead hosts are dropped from `serverUrl` on read rather than dialled, so an
+old install does not sit retrying an address that no longer exists. If a stale
+value is the problem, set it explicitly:
+`aile config serverUrl https://api.aile.sh`.
+</Note>
 
 ## Self-hosted
 
@@ -64,13 +64,12 @@ Lending a model running on your own machine. Off unless you turn it on; see
 | `localEndpoint` | — | OpenAI-compatible base URL. Loopback or LAN addresses only. |
 | `localModels` | — | Comma-separated names to advertise. Blank asks the endpoint. |
 
-> [!WARNING]
-> **Names are forwarded verbatim**
->
-> Buyers send `local/<name>`; Aile strips `local/` and passes the rest to your
-> endpoint unchanged, so the names you advertise must be exactly the names your
-> endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
-> those requests will not resolve.
+<Warning title="Names are forwarded verbatim">
+Buyers send `local/<name>`; Aile strips `local/` and passes the rest to your
+endpoint unchanged, so the names you advertise must be exactly the names your
+endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
+those requests will not resolve.
+</Warning>
 
 ## Streams
 
@@ -99,11 +98,10 @@ Lending a model running on your own machine. Off unless you turn it on; see
 |---|---|---|---|
 | `logLevel` | `info` | `silent`, `error`, `warn`, `info`, `debug` | How much `aile start` prints while running. |
 
-> [!NOTE]
-> **Nothing here widens egress**
->
-> No setting can add a host to the egress allowlist. `localEndpoint` is constrained
-> to loopback and LAN precisely so it cannot become one.
+<Note title="Nothing here widens egress">
+No setting can add a host to the egress allowlist. `localEndpoint` is constrained
+to loopback and LAN precisely so it cannot become one.
+</Note>
 
 ---
 

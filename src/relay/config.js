@@ -97,16 +97,19 @@ export function updateSettings(patch) {
 export function resetSettings(keys = null) {
   const stored = readRaw();
   const base = defaults();
-  const targets = keys?.length ? keys : Object.keys(stored).filter((k) => k !== "renterToken");
+  // Credentials are never wiped by a reset: losing either is a re-login or a
+  // re-run of `aile setup`, not a preference going back to its default.
+  const KEEP = new Set(["renterToken", "buyerKey"]);
+  const targets = keys?.length ? keys : Object.keys(stored).filter((k) => !KEEP.has(k));
 
   for (const key of targets) {
-    if (key === "renterToken") continue;   // never wiped by a reset
+    if (KEEP.has(key)) continue;
     delete stored[key];
   }
   // Merge back through the schema so the file reflects a valid state.
   const next = merge(stored);
   writeAll(next);
-  return { ok: true, value: next, reset: targets.filter((k) => k !== "renterToken"), defaults: base };
+  return { ok: true, value: next, reset: targets.filter((k) => !KEEP.has(k)), defaults: base };
 }
 
 function writeAll(settings) {

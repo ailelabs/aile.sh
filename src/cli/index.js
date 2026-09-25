@@ -3,6 +3,8 @@
  * aile.sh CLI.
  *
  *   aile                       sign in (first run), else status
+ *   aile setup                 use aile from Claude Code, Codex, opencode, …
+ *   aile run <tool>            start one of them through aile
  *   aile login                 sign in and register this machine
  *   aile connect [provider]    link a provider account
  *   aile accounts              list linked accounts
@@ -24,6 +26,14 @@ import { loadConfig, saveConfig, updateSettings, isLinked, storedOverrides, CONF
 import { resolveLocalTarget, discoverLocalModels, buildLocalCapability } from "../relay/local.js";
 import { configCommand } from "./config-command.js";
 import { mcpCommand } from "./mcp-command.js";
+import { setupCommand, runCommand, envCommand, doctorCommand, detectCommand, setupRemove, setupRefresh, toolsSetUp, isInstalled } from "./setup-command.js";
+import { loadManifest } from "../setup/manifest.js";
+import { makeCtx, webOrigin } from "../setup/ctx.js";
+import { TOOLS, getTool, printsOnly } from "../setup/tools.js";
+import { describeKey } from "../setup/key.js";
+import { SCHEMA } from "../config/settings.js";
+import { sym, heading, next, withSpinner, width, padTo, die as uiDie } from "./ui.js";
+import { overview, commandHelp, findCommand, unknownCommand } from "./help.js";
 import { mcpStatus } from "../mcp/capabilities.js";
 import { getNodeId, getNodeInfo } from "../relay/identity.js";
 import { startRelayAgent, stopRelayAgent, getRelayStatus } from "../relay/supervisor.js";
@@ -36,7 +46,7 @@ import { PROVIDERS, getProvider, isApiKeyProvider } from "../providers/index.js"
 import { isLinkable, needsApiKey } from "../providers/flows.js";
 import { api, ApiError, isSecureUrl } from "../api/client.js";
 import { welcome, welcomeNonInteractive } from "./welcome.js";
-import { isInteractive, promptChoice, promptLine, promptSecret } from "./prompt.js";
+import { isInteractive, promptChoice, promptLine, promptSecret, promptConfirm } from "./prompt.js";
 import { C } from "./colors.js";
 import { APP_VERSION } from "../config/version.js";
 import { printUpdateNotice, refreshCache, runSelfUpdate, isNewer, REFRESH_ARGV } from "../config/update-check.js";
@@ -63,6 +73,11 @@ const BOOLEAN_FLAGS = new Set([
   // Same again for the attended-job runner: `aile mcp answer --keep-home --
   // claude -p` must not read "--" (or the command) as the flag's value.
   "keep-home",
+  // `aile setup`: `aile setup --all claude` must not read "claude" as the value
+  // of `--all`, nor `--dry-run --yes` swallow the `--yes`.
+  "all", "dry-run", "new-key", "remove", "fast", "revoke", "keep-key", "tools",
+  // `aile mcp --debug test x` must not read "test" as the value of --debug.
+  "debug",
 ]);
 
 function parseArgs(argv) {
@@ -83,6 +98,9 @@ function parseArgs(argv) {
       out._.push(a);
       continue;
     }
+    // `-h` anywhere is help. It used to be a positional, so `aile start -h`
+    // STARTED the node and `aile logout -h` signed out.
+    if (a === "-h") { out.help = true; continue; }
     if (a.startsWith("--")) {
       // --key=value is unambiguous, so accept it for anything.
       const eq = a.indexOf("=");
@@ -116,10 +134,30 @@ function banner() {
 }
 
 function die(msg, hint = null) {
-  console.error(`\n${C.red}${msg}${C.reset}`);
-  if (hint) console.error(`${C.dim}${hint}${C.reset}`);
-  console.error();
-  process.exit(1);
+  uiDie(msg, hint);
+}
+
+/**
+ * What to tell a person when a call failed: `[what happened, what to do]`.
+ *
+ * "Could not reach the server" used to cover every failure, including a server
+ * that answered perfectly clearly that the sign-in had been revoked — which
+ * sends the user to debug their network when they needed `aile login`.
+ */
+function explainError(e, server = loadConfig().serverUrl) {
+  if (e instanceof LoginError) return [e.message, e.hint || null];
+  if (e?.name === "KeyError") return [e.message, e.hint || null];
+  if (e instanceof ApiError) {
+    if (e.status === 401) return ["Your sign-in is no longer valid.", "Run `aile login` to sign in again."];
+    if (e.status === 403) return [`The server refused that: ${e.message}`, "If you signed in on another machine since, run `aile login` here again."];
+    if (e.status >= 500) return [`${server} had a problem (${e.status}).`, "Try again in a moment — or `aile doctor` to check everything."];
+    return [e.message, null];
+  }
+  const m = String(e?.message || e);
+  if (/^(cannot reach|no response from)/.test(m)) {
+    return [`Could not reach the server (${server}).`, "Check your connection and try again — `aile doctor` checks everything."];
+  }
+  return [`Something went wrong: ${m}`, "Run it again with AILE_DEBUG=1 for the details, or `aile doctor` to check everything."];
 }
 
 /**
@@ -204,6 +242,28 @@ async function cmdLogin(args, { mode: forcedMode = null, quiet = false } = {}) {
   }
 
   console.log(`\nNext: ${C.cyan}aile connect${C.reset} to add an AI account, then ${C.cyan}aile start${C.reset}\n`);
+
+  await offerToolSwitch(args, result.renter);
+}
+
+/**
+ * After signing in as a DIFFERENT account than the one whose key the coding
+ * tools hold: offer to move them over. Otherwise they go on billing the
+ * previous account, which is exactly the kind of thing nobody notices until the
+ * statement arrives. Nothing is changed without a yes (or `--yes`).
+ */
+async function offerToolSwitch(args, renter) {
+  const manifest = loadManifest();
+  const tools = toolsSetUp(manifest);
+  const owner = manifest.key?.account;
+  if (!tools.length || !owner?.id || !renter?.id || owner.id === renter.id) return;
+  console.log(`${C.yellow}Your coding tools use a key from ${owner.email || "another account"}.${C.reset}`);
+  const yes = args.yes || (isInteractive() && await promptConfirm(`Switch them to ${renter.email || "this account"}?`, { defaultYes: true }));
+  if (!yes) {
+    console.log(`${C.dim}Switch later with:${C.reset} ${C.cyan}aile setup refresh --new-key${C.reset}\n`);
+    return;
+  }
+  await setupRefresh({ ...args, _: ["setup", "refresh"], "new-key": true });
 }
 
 /**
@@ -216,12 +276,12 @@ async function cmdLogin(args, { mode: forcedMode = null, quiet = false } = {}) {
  */
 async function fetchAccounts({ server, config, insecure }) {
   try {
-    const { accounts } = await api.listProviders({
+    const { accounts } = await withSpinner("Reading your accounts…", api.listProviders({
       serverUrl: server, token: config.renterToken, insecure,
-    });
+    }));
     return accounts || [];
   } catch (e) {
-    die(`Could not reach the server: ${e.message}`);
+    die(...explainError(e, server));
   }
 }
 
@@ -525,6 +585,12 @@ async function cmdConnect(args) {
       if (left <= 2) {
         console.log(`${C.dim}${left} more ${provider.name} ${left === 1 ? "account" : "accounts"} can be linked (limit ${account.maxPerProvider}).${C.reset}`);
       }
+    }
+    // What makes it earn. A linked account serves nothing until a node is up —
+    // unless it is nodeless, which is the one case where there is no next step.
+    const serving = getRelayStatus().running || lockHolder();
+    if (!(account.allow_nodeless && keyProvider) && !serving) {
+      console.log(`\n${next([["aile start", "serve it from this machine"]])}`);
     }
     console.log();
   } catch (e) {
@@ -963,7 +1029,7 @@ async function cmdUsage(args) {
   const insecure = checkTransport(server, args);
 
   const accounts = await fetchAccounts({ server, config, insecure });
-  const res = await api.providersUsage({ serverUrl: server, token: config.renterToken, insecure });
+  const res = await withSpinner("Asking each provider for its quota…", api.providersUsage({ serverUrl: server, token: config.renterToken, insecure }));
   const byId = new Map((res.accounts || []).map((r) => [r.accountId, r]));
 
   if (args.json) {
@@ -1092,7 +1158,7 @@ async function cmdRates(args) {
   }
 
   // ---- read ----------------------------------------------------------------
-  const p = await api.pricing(opts);
+  const p = await withSpinner("Reading your prices…", api.pricing(opts));
   if (args.json) {
     console.log(JSON.stringify(p, null, 2));
     return;
@@ -1261,9 +1327,9 @@ async function cmdDisconnect(args) {
   }
 
   if (isInteractive() && !args.yes) {
-    const answer = await promptLine(`\nRemove ${accountTitle(account)}? ${C.dim}[y/N]${C.reset} `);
-    if (!/^y(es)?$/i.test(answer)) {
-      console.log(`${C.dim}Left alone.${C.reset}\n`);
+    console.log();
+    if (!(await promptConfirm(`Remove ${accountTitle(account)}?`, { defaultYes: false }))) {
+      console.log(`${C.dim}Nothing changed.${C.reset}\n`);
       return;
     }
   }
@@ -1300,118 +1366,188 @@ function dashboardUrl(serverUrl) {
   }
 }
 
-async function cmdStatus(args) {
-  banner();
+/**
+ * The overview — `aile status`, and what bare `aile` shows on a machine that is
+ * already set up.
+ *
+ * BOTH SIDES, because a machine can be either or both: a buyer's coding tools
+ * (the key, what uses it) and a lender's node (accounts, relay, earnings). It
+ * used to show only the second, so a machine set up for buying read as
+ * "Signed in: NO (run: aile login)" — pointing a buyer at the seller path — and
+ * bare `aile` sent it back to the first-run welcome every time.
+ *
+ * IT ENDS WITH WHAT TO DO NEXT, chosen from the state it just read. A status
+ * that lists facts and stops leaves the reader to work out which fact matters.
+ */
+async function cmdStatus(args, { home = false } = {}) {
   const config = loadConfig();
   const info = getNodeInfo();
+  const server = config.serverUrl;
+  const manifest = loadManifest();
+  const setUp = toolsSetUp(manifest);
+  const ctx = makeCtx({ serverUrl: server });
 
-  console.log(`\n  Machine:   ${C.cyan}${info.nodeId}${C.reset} ${C.dim}(${info.platform}/${info.arch})${C.reset}`);
-  console.log(`  Server:    ${config.serverUrl}`);
+  let me = null;
+  let meError = null;
+  if (isLinked()) {
+    const insecure = !isSecureUrl(server) && config.allowInsecure === true;
+    try {
+      me = await withSpinner("Checking your account…", () => api.me({ serverUrl: server, token: config.renterToken, insecure }));
+    } catch (e) {
+      meError = e;
+    }
+  }
+  const st = getRelayStatus();
+  const holder = st.running ? null : lockHolder();
+  const mcp = mcpStatus();
+  // Protected keys are credentials, not preferences someone changed.
+  const changed = Object.keys(storedOverrides()).filter((k) => !SCHEMA[k]?.protected);
+  // Installed tools not yet set up — local checks only, nothing is run.
+  const notYet = TOOLS.filter((t) => !printsOnly(t) && !setUp.some((u) => u.id === t.id) && isInstalled(t.detect(ctx)));
+
+  if (args.json) {
+    console.log(JSON.stringify({
+      machine: { id: info.nodeId, platform: info.platform, arch: info.arch },
+      server,
+      config: CONFIG_FILE,
+      signedIn: isLinked(),
+      account: me ? { id: me.renter.id, email: me.renter.email ?? null, donor: Boolean(me.renter.donor) } : null,
+      accountError: meError ? meError.message : null,
+      accounts: me ? me.accounts.length : null,
+      served: me ? (me.nodes || []).reduce((a, n) => a + (n.requests || 0), 0) : null,
+      relay: st.running
+        ? { running: true, connected: Boolean(st.connected), fatal: st.fatal || null, here: true }
+        : holder ? { running: true, here: false, pid: holder.pid } : { running: false },
+      key: config.buyerKey ? { prefix: describeKey(config.buyerKey), account: manifest.key?.account ?? null } : null,
+      tools: setUp,
+      notSetUp: notYet.map((t) => t.id),
+      settingsChanged: changed,
+    }, null, 2));
+    return;
+  }
+
+  banner();
+
+  // --- This machine -----------------------------------------------------------
+  console.log(`\n${heading("This machine")}`);
+  console.log(`  Machine:   ${C.cyan}${info.nodeId}${C.reset} ${C.dim}(${info.platform}/${info.arch})${C.reset}`);
+  console.log(`  Server:    ${server}`);
+  console.log(`  Config:    ${C.dim}${CONFIG_FILE}${C.reset}`);
+  if (changed.length) {
+    console.log(`  Settings:  ${C.yellow}${changed.length} changed${C.reset} ${C.dim}${changed.join(", ")}${C.reset}`);
+    if (config.allowInsecure === true) {
+      console.log(`             ${C.yellow}allowInsecure is on${C.reset} ${C.dim}— plain HTTP is permitted${C.reset}`);
+    }
+  }
+
+  // --- Coding tools -----------------------------------------------------------
+  console.log(`\n${heading("Coding tools")}`);
+  if (config.buyerKey) {
+    const owner = manifest.key?.account?.email;
+    console.log(`  Key:       ${describeKey(config.buyerKey)}${owner ? ` ${C.dim}· ${owner}${C.reset}` : ""}`);
+  } else {
+    console.log(`  Key:       ${C.dim}none yet${C.reset}`);
+  }
+  if (setUp.length) {
+    const rows = setUp.map((t) => {
+      const rec = manifest.tools[t.id];
+      const how = [rec?.shortcut?.name, t.mode !== "shortcut" ? "default" : null].filter(Boolean).join(", ");
+      return `${getTool(t.id)?.label || t.id}${how ? ` ${C.dim}(${how})${C.reset}` : ""}`;
+    });
+    console.log(`  Set up:    ${rows.join(`${C.dim},${C.reset} `)}`);
+  }
+  if (notYet.length) {
+    console.log(`  Found:     ${notYet.map((t) => t.label).join(", ")} ${C.dim}— not set up yet${C.reset}`);
+  }
+
+  // --- Lending ----------------------------------------------------------------
+  console.log(`\n${heading("Lending")}`);
   // "Signed in" is answered from the token, before the server is asked, so a
   // donor machine says NO here and is corrected two lines down. That order is
   // deliberate: the local answer is always available and never wrong about what
   // it claims, and a donor genuinely is not signed in to anything.
-  console.log(`  Signed in: ${isLinked() ? `${C.green}YES${C.reset}` : `${C.red}NO${C.reset} ${C.dim}(run: aile login)${C.reset}`}`);
-  console.log(`  Config:    ${C.dim}${CONFIG_FILE}${C.reset}`);
+  console.log(`  Signed in: ${isLinked() ? `${C.green}YES${C.reset}` : `${C.dim}no — ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to lend and get paid${C.reset}`}`);
 
-  if (isLinked()) {
-    const insecure = !isSecureUrl(config.serverUrl) && config.allowInsecure === true;
-    try {
-      const me = await api.me({ serverUrl: config.serverUrl, token: config.renterToken, insecure });
-      // A donor row has no email and its id is not an account anyone can reach,
-      // so printing the id under "Account" would be a meaningless hex string
-      // where a person expects to recognise themselves.
-      if (me.renter.donor) {
-        console.log(`  Account:   ${C.yellow}contributing${C.reset} ${C.dim}· not paid, nothing accrues${C.reset}`);
-        console.log(`             ${C.dim}Run ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to be paid for this machine instead.${C.reset}`);
-      } else {
-        console.log(`  Account:   ${me.renter.email || me.renter.id}`);
-      }
-      console.log(`  Accounts:  ${me.accounts.length} connected`);
-      const hereId = info.nodeId;
-      for (const a of me.accounts.slice(0, 8)) {
-        // The SAME renderer `aile accounts` uses. This line used to run its own
-        // `attested ? … : …` rule, so the two commands disagreed about the same
-        // account — the whole reason the verdict now comes from the server.
-        const badge = accountBadge(a).trimEnd();
-        const name = getProvider(a.provider)?.name || a.provider;
-        // Label first, then email. With several accounts of one provider the
-        // repeated provider name carries no information — the thing that tells
-        // them apart is the only part worth the width.
-        const detail = a.label || a.email;
-        // A COMPACT served marker, so status answers "which of these is this box
-        // actually serving?" — the question the user typed it to settle. Full
-        // wording is one line down in `aile accounts`.
-        const s = servingOf(a);
-        const served = s.via === "node"
-          ? (s.nodeId && s.nodeId === hereId
-              ? `${C.green}● this node${C.reset}`
-              : `${C.green}● another node${C.reset}`)
-          : s.via === "nodeless"
-            ? `${C.cyan}nodeless${C.reset}`
-            : `${C.dim}no node${C.reset}`;
-        console.log(`    ${C.dim}·${C.reset} ${name} ${badge}${detail ? ` ${C.dim}${detail}${C.reset}` : ""}  ${served}`);
-      }
-      if (me.accounts.length > 8) {
-        console.log(`    ${C.dim}… and ${me.accounts.length - 8} more · aile accounts${C.reset}`);
-      }
-      // Status lists accounts flat, which cannot show that some are metered
-      // keys and some are capped subscriptions. Point at the view that can,
-      // rather than growing a second grouped listing here.
-      if (me.accounts.some((a) => isApiKeyProvider(a.provider))) {
-        console.log(`    ${C.dim}mixed kinds · ${C.reset}${C.cyan}aile capacity${C.reset}${C.dim} splits them${C.reset}`);
-      }
-
-      /**
-       * WHAT THIS ACCOUNT HAS ACTUALLY SERVED, in one line.
-       *
-       * `aile status` answers "is this machine working?", and until now the only
-       * evidence it offered was that a socket was open. A connected relay that
-       * has served nothing looks identical to a busy one, and the difference is
-       * the whole question somebody types this command to settle.
-       *
-       * ACROSS EVERY MACHINE, not just this one — because the number that says
-       * "the account is earning" and the number that says "THIS box is earning"
-       * are different, and reading one as the other sends a lender to debug a
-       * machine that is fine. The split is `aile stats`, named here.
-       */
-      const nodes = me.nodes || [];
-      if (nodes.length) {
-        const total = nodes.reduce((a, n) => a + (n.requests || 0), 0);
-        const here = nodes.find((n) => n.node_id === info.nodeId);
-        const mine = here?.requests || 0;
-        console.log(`  Served:    ${C.bold}${count(total)}${C.reset} request${total === 1 ? "" : "s"} across ${nodes.length} machine${nodes.length === 1 ? "" : "s"}`
-          + `${nodes.length > 1 ? ` ${C.dim}· ${count(mine)} on this one${C.reset}` : ""}`);
-        if (total === 0) {
-          console.log(`             ${C.dim}Nothing yet — a connected machine earns only once requests reach it.${C.reset}`);
-        } else if (nodes.length > 1) {
-          console.log(`             ${C.dim}Per machine: ${C.reset}${C.cyan}aile stats${C.reset}`);
-        }
-      }
-    } catch (e) {
-      console.log(`  Account:   ${C.yellow}${e.message}${C.reset}`);
+  if (me) {
+    // A donor row has no email and its id is not an account anyone can reach,
+    // so printing the id under "Account" would be a meaningless hex string
+    // where a person expects to recognise themselves.
+    if (me.renter.donor) {
+      console.log(`  Account:   ${C.yellow}contributing${C.reset} ${C.dim}· not paid, nothing accrues${C.reset}`);
+      console.log(`             ${C.dim}Run ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to be paid for this machine instead.${C.reset}`);
+    } else {
+      console.log(`  Account:   ${me.renter.email || me.renter.id}`);
     }
+    console.log(`  Accounts:  ${me.accounts.length} connected`);
+    const hereId = info.nodeId;
+    for (const a of me.accounts.slice(0, 8)) {
+      // The SAME renderer `aile accounts` uses. This line used to run its own
+      // `attested ? … : …` rule, so the two commands disagreed about the same
+      // account — the whole reason the verdict now comes from the server.
+      const badge = accountBadge(a).trimEnd();
+      const name = getProvider(a.provider)?.name || a.provider;
+      // Label first, then email. With several accounts of one provider the
+      // repeated provider name carries no information — the thing that tells
+      // them apart is the only part worth the width.
+      const detail = a.label || a.email;
+      // A COMPACT served marker, so status answers "which of these is this box
+      // actually serving?" — the question the user typed it to settle. Full
+      // wording is one line down in `aile accounts`.
+      const s = servingOf(a);
+      const served = s.via === "node"
+        ? (s.nodeId && s.nodeId === hereId
+            ? `${C.green}${sym.live} this node${C.reset}`
+            : `${C.green}${sym.live} another node${C.reset}`)
+        : s.via === "nodeless"
+          ? `${C.cyan}nodeless${C.reset}`
+          : `${C.dim}no node${C.reset}`;
+      console.log(`    ${C.dim}${sym.dot}${C.reset} ${name} ${badge}${detail ? ` ${C.dim}${detail}${C.reset}` : ""}  ${served}`);
+    }
+    if (me.accounts.length > 8) {
+      console.log(`    ${C.dim}… and ${me.accounts.length - 8} more · aile accounts${C.reset}`);
+    }
+    // Status lists accounts flat, which cannot show that some are metered
+    // keys and some are capped subscriptions. Point at the view that can,
+    // rather than growing a second grouped listing here.
+    if (me.accounts.some((a) => isApiKeyProvider(a.provider))) {
+      console.log(`    ${C.dim}mixed kinds · ${C.reset}${C.cyan}aile capacity${C.reset}${C.dim} splits them${C.reset}`);
+    }
+
+    /**
+     * WHAT THIS ACCOUNT HAS ACTUALLY SERVED, in one line — across every
+     * machine, not just this one, because "the account is earning" and "THIS
+     * box is earning" are different numbers. The split is `aile stats`.
+     */
+    const nodes = me.nodes || [];
+    if (nodes.length) {
+      const total = nodes.reduce((a, n) => a + (n.requests || 0), 0);
+      const here = nodes.find((n) => n.node_id === info.nodeId);
+      const mine = here?.requests || 0;
+      console.log(`  Served:    ${C.bold}${count(total)}${C.reset} request${total === 1 ? "" : "s"} across ${nodes.length} machine${nodes.length === 1 ? "" : "s"}`
+        + `${nodes.length > 1 ? ` ${C.dim}· ${count(mine)} on this one${C.reset}` : ""}`);
+      if (total === 0) {
+        console.log(`             ${C.dim}Nothing yet — a connected machine earns only once requests reach it.${C.reset}`);
+      } else if (nodes.length > 1) {
+        console.log(`             ${C.dim}Per machine: ${C.reset}${C.cyan}aile stats${C.reset}`);
+      }
+    }
+  } else if (meError) {
+    const [why] = explainError(meError, server);
+    console.log(`  Account:   ${C.yellow}${why}${C.reset}`);
   }
 
   if (config.localEnabled && config.localEndpoint) {
     console.log(`  Local AI:  ${C.cyan}${config.localEndpoint}${C.reset} ${C.yellow}not blind${C.reset}`);
   }
 
-  /**
-   * MCP capacity, and — when there is none — WHY.
-   *
-   * Silence is the wrong answer here. A lender who declared a server and then
-   * stopped Docker sees an ordinary `status` with no MCP line at all, which
-   * reads as "aile ignored my file". `mcpStatus()` returns the sentence, and
-   * this prints it rather than making them go and find `aile mcp`.
-   */
-  const mcp = mcpStatus();
+  // MCP capacity, and — when there is none — WHY. Silence would read as "aile
+  // ignored my file" to a lender who declared a server and stopped Docker.
   if (mcp.configError) {
     console.log(`  MCP:       ${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`);
   } else if (mcp.declared.length) {
     const enforced = mcp.declared.every((d) => d.egressEnforced);
     console.log(`  MCP:       ${mcp.advertising
-      ? `${C.green}${mcp.advertising} server(s)${C.reset}`
+      ? `${C.green}${mcp.advertising} server${mcp.advertising === 1 ? "" : "s"}${C.reset}`
       : `${C.yellow}0 of ${mcp.declared.length} served${C.reset}`} `
       + `${C.dim}${mcp.declared.map((d) => d.id).join(", ")}${C.reset} ${C.yellow}not blind${C.reset}`);
     if (!mcp.advertising) {
@@ -1422,24 +1558,12 @@ async function cmdStatus(args) {
   }
 
   /**
-   * Is this machine actually serving?
-   *
-   * TWO SOURCES, BECAUSE ONE OF THEM ONLY WORKS IN ONE PROCESS. `getRelayStatus`
-   * reads memory belonging to a running agent, so it is complete — connection
-   * state, stream counts — and it is also blank whenever `aile status` is typed
-   * into a second terminal, which is how it is almost always typed.
-   *
-   * That produced a genuine contradiction: `aile start` refused with "already
-   * running (pid N)" while `aile status`, run beside it, printed no relay line at
-   * all. Two commands disagreeing about whether the node is up is worse than
-   * either answer alone — the honest reading of the pair is that something is
-   * broken, when nothing is.
-   *
-   * So an agent held by ANOTHER process is reported from the lock file it holds.
-   * Less detail is available across a process boundary — no stream counts, no
-   * connection state — and saying so is better than implying the node is idle.
+   * Is this machine actually serving? Two sources, because `getRelayStatus`
+   * only knows about an agent in THIS process — and `aile status` is almost
+   * always typed into a second terminal. An agent held by another process is
+   * reported from the lock file it holds, with less detail, rather than as
+   * "not running" beside an `aile start` that refuses because it IS running.
    */
-  const st = getRelayStatus();
   if (st.running) {
     const relay = st.connected ? `${C.green}CONNECTED${C.reset}`
       : st.fatal ? `${C.red}REFUSED${C.reset} ${C.dim}${st.fatal}${C.reset}`
@@ -1451,40 +1575,34 @@ async function cmdStatus(args) {
         console.log(`             ${C.dim}${st.stats.localStreamsOpened} served by your local model${C.reset}`);
       }
       if (st.stats.mcpStreamsOpened) {
-        console.log(`             ${C.dim}${st.stats.mcpStreamsOpened} served by your MCP server(s)${C.reset}`);
+        console.log(`             ${C.dim}${st.stats.mcpStreamsOpened} served by your MCP server${st.stats.mcpStreamsOpened === 1 ? "" : "s"}${C.reset}`);
       }
     }
-  } else {
-    const holder = lockHolder();
-    if (holder) {
-      console.log(`  Relay:     ${C.green}RUNNING${C.reset} ${C.dim}in another process (pid ${holder.pid})${C.reset}`);
-      console.log(`             ${C.dim}started ${holder.at || "unknown"} · stop it there to free this machine${C.reset}`);
-    } else {
-      // Neither source knows of an agent. Said plainly rather than left as an
-      // absent line, because "signed in with accounts connected" reads like a
-      // machine that is earning, and it is not until something is running.
-      console.log(`  Relay:     ${C.dim}not running${C.reset} ${C.dim}· ${C.reset}${C.cyan}aile start${C.reset}${C.dim} to serve${C.reset}`);
-    }
+  } else if (holder) {
+    console.log(`  Relay:     ${C.green}RUNNING${C.reset} ${C.dim}in another process (pid ${holder.pid})${C.reset}`);
+    console.log(`             ${C.dim}started ${holder.at || "unknown"} · stop it there to free this machine${C.reset}`);
+  } else if (isLinked()) {
+    console.log(`  Relay:     ${C.dim}not running${C.reset} ${C.dim}· ${C.reset}${C.cyan}aile start${C.reset}${C.dim} to serve${C.reset}`);
   }
 
-  // Surfacing non-default settings here is what makes an odd-looking status
-  // self-explanatory: a lowered maxConcurrent or a disabled autoReconnect is
-  // usually the answer to "why is it behaving like that?".
-  const changed = Object.keys(storedOverrides()).filter((k) => k !== "renterToken");
-  if (changed.length) {
-    console.log(`  Settings:  ${C.yellow}${changed.length} changed${C.reset} ${C.dim}${changed.join(", ")}${C.reset}`);
-    if (config.allowInsecure === true) {
-      console.log(`             ${C.yellow}allowInsecure is on${C.reset} ${C.dim}— plain HTTP is permitted${C.reset}`);
-    }
+  // Where the numbers live — earnings, keys and spend are a browser's job, and
+  // nobody finds a page they were never told about.
+  if (isLinked() || config.buyerKey) {
+    console.log(`  Dashboard: ${C.cyan}${dashboardUrl(server)}${C.reset} ${C.dim}· earnings, keys, spend${C.reset}`);
   }
 
-  // Where the numbers live. This command answers "is my machine working?"; what
-  // it earned, what it spent, and the keys it spends with are a browser's job —
-  // and nobody finds a page they were never told about. Built from the CONFIGURED
-  // server, so a staging install does not send somebody to production.
-  if (isLinked()) {
-    console.log(`  Dashboard: ${C.cyan}${dashboardUrl(config.serverUrl)}${C.reset} ${C.dim}· earnings, keys, spend${C.reset}`);
-  }
+  // --- Next ---------------------------------------------------------------------
+  const steps = [];
+  if (!config.buyerKey && !setUp.length) steps.push(["aile setup", "use aile from Claude Code, Codex and more"]);
+  else if (notYet.length) steps.push([`aile setup ${notYet.map((t) => t.id).join(" ")}`, `set up ${notYet.map((t) => t.label).join(", ")}`]);
+  const shortcut = setUp.map((t) => manifest.tools[t.id]?.shortcut?.name).find(Boolean);
+  if (shortcut && steps.length === 0) steps.push([shortcut, "start coding through aile"]);
+  if (me && !me.renter.donor && me.accounts.length === 0) steps.push(["aile connect", "connect an AI account to lend"]);
+  else if (me && me.accounts.length && !st.running && !holder) steps.push(["aile start", "start serving what you connected"]);
+  if (!isLinked() && !steps.length) steps.push(["aile login", "sign in to lend and get paid"]);
+  if (!home) steps.push(["aile help", "every command"]);
+  const block = next(steps.slice(0, 3));
+  if (block) console.log(`\n${block}`);
   console.log();
 }
 
@@ -1544,9 +1662,13 @@ async function cmdStart(args) {
 
   console.log(`${C.dim}${config.maxConcurrent} concurrent streams · log ${config.logLevel} · ` +
               `reconnect ${config.autoReconnect ? "on" : `${C.reset}${C.yellow}off${C.reset}${C.dim}`}${C.reset}`);
+  // What happens now, said once: a node that connected and then printed nothing
+  // looks exactly like one that hung.
+  console.log(`\n${C.dim}Connecting to ${config.serverUrl}. Leave this running — Ctrl+C stops it.${C.reset}`);
+  console.log(`${C.dim}From another terminal: ${C.reset}${C.cyan}aile status${C.reset}${C.dim} shows whether it is serving.${C.reset}\n`);
 
   const shutdown = (sig) => {
-    console.log(`\n${C.dim}[aile] ${sig} — draining streams…${C.reset}`);
+    console.log(`\n${C.dim}[aile] ${sig} — stopping…${C.reset}`);
     stopRelayAgent(sig);
     process.exit(0);
   };
@@ -1568,18 +1690,39 @@ async function cmdStart(args) {
     const st = getRelayStatus();
     if (st.fatal) {
       clearInterval(heartbeat);
-      die(st.fatal, "Run `aile login` to sign in again.");
+      // The supervisor has already said why and what to do; saying it twice
+      // made one refusal look like two problems.
+      die(st.fatal);
     }
   }, 1000);
   if (heartbeat.unref) heartbeat.unref();
   setInterval(() => {}, 1 << 30);
 }
 
-async function cmdLogout() {
+async function cmdLogout(args = {}) {
+  // THE CODING TOOLS ARE A SEPARATE CREDENTIAL. Signing out ends this machine's
+  // account token; the API key `aile setup` put into Claude Code, Codex and the
+  // rest keeps working — and billing — until it is removed or revoked. Say so,
+  // and offer to remove it while this machine can still revoke it.
+  const manifest = loadManifest();
+  const tools = toolsSetUp(manifest);
+  let removeTools = Boolean(args.tools);
+  if (tools.length && !removeTools && isInteractive() && !args.yes) {
+    const who = manifest.key?.account?.email ? ` (${manifest.key.account.email})` : "";
+    console.log(`Your coding tools still use aile: ${tools.map((t) => t.id).join(", ")} · key ${manifest.key?.prefix || ""}${who}.`);
+    removeTools = await promptConfirm("Remove aile from them too, and revoke the key?", { defaultYes: false });
+  }
+  if (removeTools && tools.length) await setupRemove({ yes: true, revoke: true }, []);
+
+  const wasSignedIn = Boolean(loadConfig().renterToken);
   stopRelayAgent("signed out");
   saveConfig({ renterToken: "" });
   clearState();
-  console.log(`${C.green}Signed out.${C.reset} ${C.dim}Connected accounts remain on the server.${C.reset}`);
+  if (wasSignedIn) console.log(`${C.green}Signed out.${C.reset} ${C.dim}Connected accounts remain on the server.${C.reset}`);
+  else console.log(`${C.dim}This machine was not signed in.${C.reset}`);
+  if (tools.length && !removeTools) {
+    console.log(`${C.dim}Your coding tools still use aile. Remove it:${C.reset} ${C.cyan}aile setup --remove${C.reset}${C.dim} · move them to another account:${C.reset} ${C.cyan}aile login${C.reset}${C.dim}, then${C.reset} ${C.cyan}aile setup refresh --new-key${C.reset}`);
+  }
 }
 
 /**
@@ -1629,8 +1772,8 @@ async function cmdRegister(args) {
  * printing what was agreed to, because the person who reads that output later is
  * often not the person who wrote the script.
  */
-async function cmdDonate(args) {
-  banner();
+async function cmdDonate(args, { quiet = false } = {}) {
+  if (!quiet) banner();
   const existing = loadConfig();
   const server = args.server || existing.serverUrl;
   const insecure = checkTransport(server, args);
@@ -1661,9 +1804,8 @@ async function cmdDonate(args) {
         "Pass --yes to contribute non-interactively: aile donate --yes",
       );
     }
-    const ok = await promptLine(`  Contribute this machine unpaid? ${C.dim}(y/N)${C.reset} `);
-    if (!/^y(es)?$/i.test(String(ok || "").trim())) {
-      console.log(`\n  ${C.dim}Nothing was changed.${C.reset}\n`);
+    if (!(await promptConfirm("  Contribute this machine unpaid?", { defaultYes: false }))) {
+      console.log(`\n  ${C.dim}Nothing changed.${C.reset}\n`);
       return;
     }
   }
@@ -1737,9 +1879,9 @@ async function cmdWallet(args) {
 
   let res;
   try {
-    res = await api.wallet({ serverUrl: server, token: config.renterToken, insecure, balance: true });
+    res = await withSpinner("Reading your wallet…", api.wallet({ serverUrl: server, token: config.renterToken, insecure, balance: true }));
   } catch (e) {
-    die(`Could not reach the server: ${e.message}`);
+    die(...explainError(e, server));
   }
 
   if (args.json) {
@@ -1783,7 +1925,7 @@ async function cmdWallet(args) {
     const spendable = res.wallet.spendable;
     console.log(`  Owed:     ${C.yellow}$${(owed / 1_000_000).toFixed(6)}${C.reset} ${C.dim}for requests already served, not yet paid out${C.reset}`);
     if (spendable !== null && spendable !== undefined) {
-      console.log(`  Spendable:${C.green}$${spendable}${C.reset} ${C.dim}balance minus what is owed${C.reset}`);
+      console.log(`  Spendable: ${C.green}$${spendable}${C.reset} ${C.dim}balance minus what is owed${C.reset}`);
     }
   }
 
@@ -1868,7 +2010,7 @@ async function cmdWallet(args) {
     console.log(`\n  ${C.bold}Your earnings need no withdrawal${C.reset}`);
     console.log(`  ${C.dim}They are settled to the wallet you signed in with, so they are yours the`);
     console.log(`  moment they land — nothing to claim, and no key of yours held here. The`);
-    console.log(`  balance above is what you added for spending, and ${C.reset}${C.cyan}${server}/wallet/withdraw${C.reset}`);
+    console.log(`  balance above is what you added for spending, and ${C.reset}${C.cyan}${webOrigin(server)}/wallet/withdraw${C.reset}`);
     console.log(`  ${C.dim}sends it anywhere you name.${C.reset}\n`);
     return;
   }
@@ -1876,7 +2018,7 @@ async function cmdWallet(args) {
   console.log(`  ${C.dim}Earnings arrive here. Solana.${C.reset}`);
 
   console.log(`\n  ${C.bold}To send it somewhere${C.reset}`);
-  console.log(`  ${C.dim}Open ${C.reset}${C.cyan}${server}/wallet/withdraw${C.reset}${C.dim} and paste the address to send`);
+  console.log(`  ${C.dim}Open ${C.reset}${C.cyan}${webOrigin(server)}/wallet/withdraw${C.reset}${C.dim} and paste the address to send`);
   console.log(`  to. Nothing is on file, so a withdrawal names where it is going at the`);
   console.log(`  moment you make it — which is also why nobody who reaches your account`);
   console.log(`  can point your earnings anywhere in advance.${C.reset}\n`);
@@ -1995,8 +2137,6 @@ const usd = (n) => (n === null || n === undefined || !Number.isFinite(Number(n))
 const count = (n) => Number(n || 0).toLocaleString("en-US");
 
 /** Strip colour before measuring — escapes have width 0 on screen and length in JS. */
-const width = (s) => String(s).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").length;
-const padTo = (s, n) => String(s) + " ".repeat(Math.max(n - width(s), 0));
 
 /**
  * One lender's providers, as the same two symbols the web page uses.
@@ -2081,7 +2221,7 @@ async function cmdLenders(args) {
 
   let res;
   try {
-    res = await api.market({
+    res = await withSpinner("Asking who is lending…", api.market({
       serverUrl: server, token: config.renterToken, insecure,
       model: args.model || null,
       maxPrice: args["max-price"] ?? args.maxPrice ?? null,
@@ -2092,12 +2232,12 @@ async function cmdLenders(args) {
       minServed: args["min-served"] ?? args.minServed ?? null,
       freeOnly: Boolean(args.free || args["free-only"]),
       sort,
-    });
+    }));
   } catch (e) {
     // A bad `--max-price` is a 400 with the server's own sentence, which is more
     // use than "request failed" — it names the unit the number is in.
     if (e instanceof ApiError && e.status === 400) die(e.message);
-    die(`Could not reach the server: ${e.message}`);
+    die(...explainError(e, server));
   }
 
   if (args.json) {
@@ -2381,15 +2521,15 @@ async function cmdPrice(args) {
 
   let res;
   try {
-    res = await api.market({
+    res = await withSpinner("Pricing it at every lender…", api.market({
       serverUrl: server, token: config.renterToken, insecure,
       model: String(model),
       handle: args.lender || args.seller || null,
       nodeId: args.node || null,
-    });
+    }));
   } catch (e) {
     if (e instanceof ApiError && e.status === 400) die(e.message);
-    die(`Could not reach the server: ${e.message}`);
+    die(...explainError(e, server));
   }
 
   const lenders = (res.lenders || []).filter((l) => l.price);
@@ -2501,9 +2641,9 @@ async function cmdSpend(args) {
 
   let res;
   try {
-    res = await api.spend({ serverUrl: server, token: config.renterToken, insecure });
+    res = await withSpinner("Adding up what you spent…", api.spend({ serverUrl: server, token: config.renterToken, insecure }));
   } catch (e) {
-    die(`Could not reach the server: ${e.message}`);
+    die(...explainError(e, server));
   }
 
   if (args.json) {
@@ -2568,9 +2708,9 @@ async function cmdStats(args) {
 
   let me;
   try {
-    me = await api.me({ serverUrl: server, token: config.renterToken, insecure });
+    me = await withSpinner("Counting what your machines served…", api.me({ serverUrl: server, token: config.renterToken, insecure }));
   } catch (e) {
-    die(`Could not reach the server: ${e.message}`);
+    die(...explainError(e, server));
   }
 
   const nodes = me.nodes || [];
@@ -2630,154 +2770,7 @@ async function cmdStats(args) {
 }
 
 function usage() {
-  banner();
-  console.log(`
-  ${C.bold}Usage${C.reset}
-    aile login                      sign in and register this machine ${C.dim}(paid)${C.reset}
-    aile donate                     contribute this machine ${C.dim}(unpaid, no account)${C.reset}
-    aile connect [name]             connect an AI account (no name = pick one)
-    aile accounts                   show connected accounts
-    aile capacity                   show everything this machine lends
-    aile label <n> <name>           name an account
-    aile retest [n]                 re-check a credential from the server
-    aile usage                      quota each provider reports, per account
-    aile nodeless <n> on|off        serve an API key with no machine in the path
-    aile rates                      what you charge, and what you will not serve
-    aile disconnect [n]             remove a connected account
-    aile local [url]                lend a model running on this machine
-    aile mcp [check|test <id>]      lend an MCP server running on this machine
-    aile wallet                     your balance, and where earnings land
-    aile start                      run this machine as a relay node
-    aile status                     show this machine's state
-    aile stats                      what each of your machines has served
-    aile lenders                    who is lending, and what they charge
-    aile price <model>              what one request would cost, at each rate
-    aile spend                      what each lender has cost you
-    aile config [key] [value]       read or change settings
-    aile logout                     sign out
-
-  ${C.bold}Several accounts of one provider${C.reset}
-    aile connect codex --label work   connect a second one and name it
-    aile connect codex --account work same account across re-links, when the
-                                      provider identifies nothing itself
-    aile connect codex --replace 2    rotate the credential on one you already have
-    aile accounts                     lists them numbered, per provider
-    aile disconnect 2                 remove by number, not by id
-    ${C.dim}Personal and work subscriptions have separate quotas, so both earn.${C.reset}
-
-  ${C.bold}Lending an API key${C.reset}
-    aile connect                      lists which providers take a key
-    aile connect openrouter           prompts for the key, masked
-    echo $KEY | aile connect groq --key -   read it from a pipe, for scripts
-    aile connect groq --nodeless      let it serve while this machine is off
-    ${C.dim}Billed to you per token, with no monthly ceiling to stop at.${C.reset}
-    ${C.dim}--nodeless removes your kill switch: turning this node off no longer${C.reset}
-    ${C.dim}stops it, only \`aile nodeless <n> off\` does. Keys only — a subscription${C.reset}
-    ${C.dim}is relayed through your node on purpose.${C.reset}
-
-  ${C.bold}What you charge${C.reset}
-    aile rates                        margin, per-model prices, what is off
-    aile rates --margin 0.9           0 (free) to 1 (list price), on every model
-    aile rates set <model> --in 3 --out 15    dollars per million tokens, up to list
-    aile rates off <model>            stop serving one model
-    ${C.dim}Prices are per model, not per account: two keys of one provider share${C.reset}
-    ${C.dim}a price sheet. \`aile price <model>\` is the other direction — what a${C.reset}
-    ${C.dim}request would COST you at everyone else's rates.${C.reset}
-
-  ${C.bold}Lending your own model${C.reset}
-    aile local http://127.0.0.1:11434   Ollama, vLLM, LM Studio, llama.cpp
-    aile local --off                    stop lending it
-    ${C.dim}Note: this traffic is not blind — it runs on your machine.${C.reset}
-
-  ${C.bold}Lending an MCP server${C.reset}
-    aile mcp                            what is declared, and whether it can run
-    aile mcp check                      validate the file, print the exact argv
-    aile mcp test <id>                  start it here and list its tools
-    ${C.dim}Declared in mcp-servers.json next to your config. Each rented session
-    runs in its own throwaway container: read-only root, no host filesystem,
-    no network unless you name hosts. No sandbox, no lending — there is no
-    unsandboxed fallback.${C.reset}
-
-  ${C.bold}Seeing all three at once${C.reset}
-    aile capacity                     subscriptions, keys and your own model
-    aile capacity --json              the same, for a script
-    ${C.dim}They differ in what stops them: a plan's ceiling, your invoice, or
-    nothing. Only the first two are blind.${C.reset}
-
-  ${C.bold}Getting paid${C.reset}
-    aile wallet                     your balance, and where earnings land
-    aile wallet --json              the same, for a script
-    ${C.dim}One account, one wallet, made for you when you sign in. Earnings arrive
-    there in USDC on Solana. To send it on, open /wallet/withdraw in a browser
-    and paste the address to send to — nothing is kept on file, so a withdrawal
-    says where it is going at the moment you make it, and nobody who reaches
-    your account can point your earnings anywhere in advance.${C.reset}
-
-  ${C.bold}Choosing who serves you${C.reset}
-    aile lenders                      everyone online, cheapest first
-    aile lenders --model gpt-5.2      with what each would charge for it
-    aile lenders --max-price 8        under $8 per million tokens, both ways
-    aile lenders --verified           attested subscriptions only
-    aile lenders --provider codex     offering that subscription
-    aile lenders --seller L4f1a…      one seller, whichever machine is free
-    aile lenders --node a3f19c2…      one specific machine
-    aile lenders --min-served 100     with a track record behind them
-    aile lenders --free               with capacity free this second
-    aile lenders --sort served|free|uptime|price
-    ${C.dim}Filters combine, and every one narrows: --verified --max-price 8 is both.
-    The first five have a header twin so a choice you make here is one you can
-    act on — ${C.reset}${C.cyan}x-aile-max-price${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-verified${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-provider${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-lender${C.reset}${C.dim}, ${C.reset}${C.cyan}x-aile-node${C.reset}${C.dim}.
-    --seller is the person and --node is the box: a lender may run several.
-    --min-served, --free and --sort change only what you read; requests are
-    always routed cheapest-first, which is also the default order here.
-    A /v1 request's model must be <provider>/<model> (cc/claude-sonnet-5,
-    local/llama3), or a bare id with x-aile-provider. A bare id alone is a 400.${C.reset}
-
-  ${C.bold}What it has cost, on both sides${C.reset}
-    aile stats                        your machines: requests served, earned
-    aile spend                        your buying: what each lender charged you
-    aile price gpt-5.2 --max-tokens 1024   what the NEXT one would cost
-    ${C.dim}Output is priced at the max_tokens your request authorises, not at the
-    reply that comes back — so that field is the one lever you hold over your
-    own bill, and aile price is where you can see it move. It sends nothing.
-    The other two are counted from the ledger — one row per served request.
-    Nothing here is typed by anyone, which is why there are no ratings to read.${C.reset}
-
-  ${C.bold}Signing in without a browser${C.reset}
-    aile login --paste              approve elsewhere, paste the token here
-    aile login --token <token>      non-interactive (scripts, images)
-
-  ${C.bold}Contributing without an account${C.reset}
-    aile donate                     no sign-up; this machine starts helping
-    aile donate --yes               skip the confirmation, for images
-    ${C.dim}Buyers still pay the normal rate — you are donating the earnings, not
-    the price. Nothing accrues, and nothing can be claimed later. Run
-    ${C.reset}${C.cyan}aile login${C.reset}${C.dim} instead to be paid for the same work.${C.reset}
-
-  ${C.bold}Options${C.reset}
-    --server <url>                  point at a different server
-    --insecure                      allow plain http:// (staging only)
-    --label <name>                  name the account being connected
-    --key <key>                     API key, for key-based providers
-    --key -                         read that key from stdin instead
-    --yes                           skip the confirmation on disconnect
-
-  ${C.bold}Settings${C.reset}
-    aile config                     list every setting and what it does
-    aile config maxConcurrent 8     change one
-    aile config --reset             restore defaults (keeps your sign-in)
-
-  ${C.bold}Version and updates${C.reset}
-    aile --version                  print this client's version
-    aile update                     check for, and install, a newer aile.sh
-    ${C.dim}A one-line notice appears above other commands when a newer version is
-    out; ${C.reset}${C.cyan}aile update${C.reset}${C.dim} is where you act on it. Silence it with
-    ${C.reset}${C.cyan}AILE_NO_UPDATE_CHECK=1${C.reset}${C.dim}.${C.reset}
-
-  ${C.bold}Documentation${C.reset}
-    ${C.cyan}https://aile.sh/docs${C.reset}${C.dim}             guides, concepts, troubleshooting${C.reset}
-    ${C.cyan}https://aile.sh/docs/cli${C.reset}${C.dim}         every command and flag, in full${C.reset}
-`);
+  console.log(`\n${overview()}\n`);
 }
 
 /**
@@ -2792,7 +2785,7 @@ function usage() {
  */
 async function cmdUpdate(args) {
   banner();
-  const latest = await refreshCache();
+  const latest = await withSpinner("Checking for a newer version…", refreshCache({ timeoutMs: 8000 }));
   if (!latest) {
     console.log(`\n${C.dim}Could not reach the npm registry. Try again, or update manually:${C.reset}`);
     console.log(`  ${C.cyan}npm install -g aile.sh@latest${C.reset}\n`);
@@ -2811,8 +2804,7 @@ async function cmdUpdate(args) {
     return;
   }
   if (!auto) {
-    const answer = (await promptLine(`Update now? ${C.dim}[Y/n]${C.reset} `)).toLowerCase();
-    if (answer && answer !== "y" && answer !== "yes") {
+    if (!(await promptConfirm("Update now?", { defaultYes: true }))) {
       console.log(`${C.dim}Left at ${APP_VERSION}. Run ${C.reset}${C.cyan}aile update${C.reset}${C.dim} when ready.${C.reset}\n`);
       return;
     }
@@ -2854,7 +2846,12 @@ async function firstRun(args) {
   // own consent step — and that step must not be skipped just because the user
   // arrived at it from the welcome screen rather than by typing `aile donate`.
   if (choice === "donate") {
-    await cmdDonate(args);
+    await cmdDonate(args, { quiet: true });
+    return;
+  }
+
+  if (choice === "setup") {
+    await setupCommand({ ...args, _: ["setup"] });
     return;
   }
 
@@ -2873,6 +2870,22 @@ if (args._[0] === REFRESH_ARGV) {
   process.exit(0);
 }
 
+// `aile run <tool> …` and `aile env <tool>` hand everything after the tool's name
+// to the tool — its own `--version` and `--help` included — so they dispatch here,
+// before this CLI acts on any flag of its own. `aile run codex --version` must
+// print Codex's version, not ours.
+if (args._[0] === "run" || args._[0] === "env") {
+  const raw = process.argv.slice(2);
+  try {
+    if (args._[0] === "run") await runCommand(raw);
+    else await envCommand(raw);
+  } catch (e) {
+    const [msg, hint] = explainError(e);
+    die(msg, hint);
+  }
+  process.exit(process.exitCode ?? 0);
+}
+
 // `aile --version` / `aile version` / `aile -v`: print the baked-in version and
 // leave. Must work before sign-in — it is the first thing a bug report asks for.
 if (args.version || ["version", "-v", "-V"].includes(args._[0])) {
@@ -2880,52 +2893,136 @@ if (args.version || ["version", "-v", "-V"].includes(args._[0])) {
   process.exit(0);
 }
 
-// `--help` never reaches `args._` — parseArgs lifts it to a flag — so asking
-// for help on a machine with no token would otherwise fall into the sign-in
-// gate. Help must work before you have an account; that is when it is needed.
-const cmd = args.help ? "help"
-  : args._[0] || (loadConfig().renterToken ? "status" : "first-run");
+/**
+ * HELP RUNS NOTHING. `--help` or `-h` anywhere, and `aile help <command>`,
+ * print help and exit before any command is dispatched — so `aile lenders
+ * --help` never touches the network and `aile start -h` never starts a node.
+ * Help must work before you have an account; that is when it is needed.
+ */
+if (args.help || args._[0] === "help") {
+  const topic = args._[0] === "help" ? args._[1] : args._[0];
+  if (!topic) {
+    usage();
+    process.exit(0);
+  }
+  const c = findCommand(topic);
+  if (!c) {
+    console.error(`\n${unknownCommand(topic)}\n`);
+    process.exit(1);
+  }
+  console.log(`\n${commandHelp(c)}\n`);
+  process.exit(0);
+}
+
+/** Has anything been set up here — to lend, or to use aile from a coding tool? */
+function setUpHere() {
+  const c = loadConfig();
+  return Boolean(c.renterToken || c.buyerKey || Object.keys(loadManifest().tools).length);
+}
+
+/**
+ * Bare `aile` on a machine that is set up: the overview, then — with a person
+ * at a terminal — a menu of the things they are likely to want next. Each
+ * choice runs in this process and comes back to the menu; `start` does not
+ * come back, because serving is what it is for until Ctrl+C.
+ */
+async function home(args) {
+  await cmdStatus(args, { home: true });
+  if (!isInteractive()) return;
+
+  for (;;) {
+    const config = loadConfig();
+    const lender = Boolean(config.renterToken);
+    const items = [
+      ["setup", "Set up coding tools", "Claude Code, Codex, opencode, …"],
+      ["detect", "See installed tools", "what is on this machine, and where"],
+      ...(lender
+        ? [["connect", "Connect an AI account", "lend a subscription or an API key"],
+          ["start", "Start lending", "run this machine as a relay node"],
+          ["wallet", "Wallet", "balance, and where earnings land"]]
+        : [["login", "Sign in to lend", "get paid for spare capacity"]]),
+      ["doctor", "Check everything", "key, server and each tool"],
+      ["status", "Refresh this overview", ""],
+      ["help", "All commands", ""],
+      ["quit", "Quit", ""],
+    ];
+    const pick = await promptChoice(
+      `${heading("What would you like to do?")} ${C.dim}(${sym.up}${sym.down} or a number, enter · esc quits)${C.reset}`,
+      items.map(([, label, note]) => ({ label, note })),
+    );
+    if (pick === null || items[pick][0] === "quit") {
+      console.log();
+      return;
+    }
+    const id = items[pick][0];
+    console.log();
+    const sub = { ...args, _: [id] };
+    if (id === "setup") await setupCommand(sub);
+    else if (id === "detect") await detectCommand(sub);
+    else if (id === "connect") await cmdConnect(sub);
+    else if (id === "wallet") await cmdWallet(sub);
+    else if (id === "login") await cmdLogin(sub);
+    else if (id === "doctor") { await doctorCommand(sub); process.exitCode = 0; }
+    else if (id === "status") await cmdStatus(sub, { home: true });
+    else if (id === "help") usage();
+    else if (id === "start") { await cmdStart(sub); return; }
+  }
+}
+
+const cmd = args._[0] || (setUpHere() ? "home" : "first-run");
 
 // A one-line "a newer aile.sh is out" notice, drawn above the command's own
 // output. Cache-only and silent by default (see config/update-check.js). Held
-// back where it would be noise or corrupt output: the help/version text, the
-// update command (it runs its own, fresher check), and any --json consumer.
-if (!args.json && cmd !== "help" && cmd !== "update" && cmd !== "upgrade") {
+// back where it would be noise or corrupt output: the update command (it runs
+// its own, fresher check) and any --json consumer.
+if (!args.json && !["update", "upgrade"].includes(cmd)) {
   printUpdateNotice();
 }
 
-switch (cmd) {
-  case "first-run": await firstRun(args); break;
-  case "login": await cmdLogin(args); break;
-  case "donate": case "contribute": await cmdDonate(args); break;
-  case "connect": await cmdConnect(args); break;
-  case "accounts": await cmdAccounts(args); break;
-  case "capacity": await cmdCapacity(args); break;
-  case "label": case "rename": await cmdLabel(args); break;
-  case "retest": case "recheck": await cmdRetest(args); break;
-  case "usage": case "quota": await cmdUsage(args); break;
-  case "nodeless": await cmdNodeless(args); break;
-  case "rates": await cmdRates(args); break;
-  case "disconnect": await cmdDisconnect(args); break;
-  case "status": await cmdStatus(args); break;
-  case "stats": await cmdStats(args); break;
-  // BUYING, and the two aliases are not decoration: somebody looking for the
-  // listing types `market` as often as `lenders`, and an unknown-command exit is
-  // a worse answer than the table they wanted.
-  case "lenders": case "market": await cmdLenders(args); break;
-  case "price": case "quote": await cmdPrice(args); break;
-  case "spend": await cmdSpend(args); break;
-  case "start": await cmdStart(args); break;
-  case "local": await cmdLocal(args); break;
-  case "mcp": await mcpCommand(args); break;
-  case "wallet": case "payout": await cmdWallet(args); break;
-  case "config": case "settings": configCommand(args); break;
-  case "update": case "upgrade": await cmdUpdate(args); break;
-  case "logout": await cmdLogout(); break;
-  case "register": await cmdRegister(args); break;
-  case "help": case "--help": case "-h": usage(); break;
-  default:
-    console.error(`Unknown command: ${cmd}`);
-    usage();
-    process.exit(1);
+try {
+  switch (cmd) {
+    case "first-run": await firstRun(args); break;
+    case "home": await home(args); break;
+    case "setup": await setupCommand(args); break;
+    case "doctor": await doctorCommand(args); break;
+    case "detect": case "tools": await detectCommand(args); break;
+    case "login": await cmdLogin(args); break;
+    case "donate": case "contribute": await cmdDonate(args); break;
+    case "connect": await cmdConnect(args); break;
+    case "accounts": await cmdAccounts(args); break;
+    case "capacity": await cmdCapacity(args); break;
+    case "label": case "rename": await cmdLabel(args); break;
+    case "retest": case "recheck": await cmdRetest(args); break;
+    case "usage": case "quota": await cmdUsage(args); break;
+    case "nodeless": await cmdNodeless(args); break;
+    case "rates": await cmdRates(args); break;
+    case "disconnect": await cmdDisconnect(args); break;
+    case "status": await cmdStatus(args); break;
+    case "stats": await cmdStats(args); break;
+    // BUYING, and the two aliases are not decoration: somebody looking for the
+    // listing types `market` as often as `lenders`, and an unknown-command exit is
+    // a worse answer than the table they wanted.
+    case "lenders": case "market": await cmdLenders(args); break;
+    case "price": case "quote": await cmdPrice(args); break;
+    case "spend": await cmdSpend(args); break;
+    case "start": await cmdStart(args); break;
+    case "local": await cmdLocal(args); break;
+    case "mcp": await mcpCommand(args); break;
+    case "wallet": case "payout": await cmdWallet(args); break;
+    case "config": case "settings": configCommand(args); break;
+    case "update": case "upgrade": await cmdUpdate(args); break;
+    case "logout": await cmdLogout(args); break;
+    case "register": await cmdRegister(args); break;
+    default:
+      console.error(`\n${unknownCommand(cmd)}\n`);
+      process.exit(1);
+  }
+} catch (e) {
+  // ONE PLACE FOR EVERYTHING NOBODY CAUGHT. An unexpected throw used to reach
+  // the user as a raw stack trace — for failures as ordinary as a dropped
+  // connection. It now gets one sentence and what to do; the trace is kept for
+  // whoever asks for it.
+  if (process.env.AILE_DEBUG === "1") console.error(e);
+  const [msg, hint] = explainError(e);
+  die(msg, hint);
 }

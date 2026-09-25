@@ -49,7 +49,7 @@ describe("welcome", () => {
   });
 
   it("offers every way in, and returns the chosen one", async () => {
-    for (const [index, expected] of [[0, "browser"], [1, "paste"], [2, "donate"]]) {
+    for (const [index, expected] of [[0, "setup"], [1, "browser"], [2, "paste"], [3, "donate"]]) {
       const log = recorder();
       const got = await welcome({ serverUrl: SERVER, log, interactive: true, choose: async () => index });
       expect({ index, got }).toEqual({ index, got: expected });
@@ -62,11 +62,11 @@ describe("welcome", () => {
       serverUrl: SERVER, log: recorder(), interactive: true,
       choose: async (_title, choices) => { offered = choices; return 0; },
     });
-    expect(offered.map((c) => c.id)).toEqual(["browser", "paste", "donate"]);
+    expect(offered.map((c) => c.id)).toEqual(["setup", "browser", "paste", "donate"]);
     expect(offered.every((c) => c.label && c.note)).toBe(true);
     // The headless case has to be visible as a first-class answer, not a
     // recovery someone discovers after the browser path fails silently.
-    expect(offered[1].note).toMatch(/headless|SSH|container/i);
+    expect(offered[2].note).toMatch(/headless|SSH|container/i);
   });
 
   /**
@@ -88,7 +88,7 @@ describe("welcome", () => {
     expect(offered.at(-1).note).not.toMatch(/\bfree\b/i);
     // And the two paid choices have to be legible as paid, or the unpaid one
     // is not a choice so much as an ambush.
-    for (const c of offered.slice(0, 2)) expect(c.note).toMatch(/get paid/i);
+    for (const c of offered.slice(1, 3)) expect(c.note).toMatch(/get paid/i);
   });
 
   it("returns null when cancelled, so the caller does not sign in by default", async () => {
@@ -123,6 +123,7 @@ describe("welcomeNonInteractive", () => {
     expect(text).toContain("aile login");
     expect(text).toContain("--paste");
     expect(text).toContain("--token");
+    expect(text).toContain("aile setup");
   });
 
   /**
@@ -153,7 +154,17 @@ describe("CHOICES", () => {
     // `firstRun` turns these into signIn's `mode` — except `donate`, which it
     // routes to the command instead, because that flow has a consent step no
     // login mode has. Either way a rename here silently changes which runs.
-    expect(CHOICES.map((c) => c.id)).toEqual(["browser", "paste", "donate"]);
+    expect(CHOICES.map((c) => c.id)).toEqual(["setup", "browser", "paste", "donate"]);
+  });
+
+  /**
+   * Using aile from a coding tool is what most first runs are for, and it needs
+   * no sign-in on this machine — so it is offered first, and says so.
+   */
+  it("offers the coding-tools setup first, as a key rather than a sign-in", () => {
+    expect(CHOICES[0].id).toBe("setup");
+    expect(CHOICES[0].note).toMatch(/Claude Code/);
+    expect(CHOICES[0].note).toMatch(/key/i);
   });
 });
 // Naming is not checked here: branding.test.js already scans all of src/ for

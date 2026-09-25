@@ -20,6 +20,12 @@
 import { describe, expect, it } from "bun:test";
 import { PassThrough } from "node:stream";
 import { isInteractive, promptSecret, promptLine, promptChoice, copyToClipboard } from "../src/cli/prompt.js";
+import { sym } from "../src/cli/ui.js";
+
+// The marks are Unicode where the terminal can draw them and ASCII where it
+// cannot (src/cli/ui.js), so a test names the mark rather than spelling it.
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const ARROW = esc(sym.arrow), DOWN = esc(sym.down);
 
 /** A stdin that claims to be a TTY and records raw-mode transitions. */
 function fakeTty() {
@@ -357,8 +363,8 @@ describe("promptChoice with more than nine options", () => {
     // before splitting would silently yield the whole transcript and assert
     // against a frame the user never saw.
     const frame = plain(output.written.split(/\x1b\[\d+A/).pop());
-    expect(frame).toMatch(/❯ 1\. item 1/);
-    expect(frame).not.toMatch(/❯ .*item 2\b/);
+    expect(frame).toMatch(new RegExp(`${ARROW} 1\\. item 1`));
+    expect(frame).not.toMatch(new RegExp(`${ARROW} .*item 2\\b`));
     input.write("2");
     expect(await p).toBe(11);
   });
@@ -514,7 +520,7 @@ describe("promptChoice in a window too short for the list", () => {
     output.rows = 12;
     const p = promptChoice("Pick:", many(19), { input, output });
     await tick();
-    expect(plain(output.written)).toMatch(/↓ \d+ more/);
+    expect(plain(output.written)).toMatch(new RegExp(`${DOWN} \\d+ more`));
     input.write("\r");
     await p;
   });

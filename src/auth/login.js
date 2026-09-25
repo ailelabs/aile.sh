@@ -63,7 +63,7 @@ const MAX_PASTE_ATTEMPTS = 3;
  * one piece of local detail the CLI volunteers. `AILE_NO_MACHINE_LABEL=1` withholds
  * it; the flow works identically without it.
  */
-function machineLabel() {
+export function machineLabel() {
   if (process.env.AILE_NO_MACHINE_LABEL === "1") return null;
   try {
     const name = String(os.hostname() || "").trim();
@@ -393,11 +393,15 @@ async function raceLogin({
   // server that never answers cannot strand the prompt behind it.
   let released;
   const instructionsShown = new Promise((r) => { released = r; });
+  // The URL the screen shows — and so the one `c` must copy. It used to copy
+  // `<server>/login`, a different page from the one printed right above it.
+  let shownUrl = null;
 
   const browser = deviceLogin({
     serverUrl, insecure, enrol, log, openBrowser, now, sleep,
     signal: stop.signal,
     onStart: async ({ url, userCode }) => {
+      shownUrl = url;
       log(`\n  Opening your browser to sign in.`);
       log(`\n  ${C_DIM}Browser didn't open? Use the url below to sign in (c to copy)${C_RESET}`);
       log(`  ${url}\n`);
@@ -427,11 +431,11 @@ async function raceLogin({
 
     let last = null;
     for (let attempt = 1; attempt <= MAX_PASTE_ATTEMPTS; attempt++) {
-      const entered = await readSecret("  Paste code here if prompted > ", {
+      const entered = await readSecret("  Or paste a token here > ", {
         signal: stop.signal,
         hotkeys: {
           c: async () => {
-            const ok = await copy(pasteUrl(serverUrl));
+            const ok = await copy(shownUrl || pasteUrl(serverUrl));
             log(ok ? `  ${C_DIM}URL copied to clipboard.${C_RESET}` : `  ${C_DIM}Could not copy — select the URL above.${C_RESET}`);
           },
         },

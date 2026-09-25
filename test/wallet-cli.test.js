@@ -742,7 +742,7 @@ describe("help", () => {
   it("lists the command and states the model in one place", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aile-wallet-cli-"));
     scratches.push(dir);
-    const res = await run(["--help"], { data: dir });
+    const res = await run(["wallet", "--help"], { data: dir });
     expect(res.stdout).toContain("aile wallet");
     expect(res.stdout).toMatch(/one account, one wallet/i);
     expect(res.stdout).toMatch(/nothing is kept on file/i);

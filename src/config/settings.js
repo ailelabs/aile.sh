@@ -41,6 +41,22 @@ export const SCHEMA = {
     protected: true,
     describe: "bearer token for your aile.sh account (set by `aile login`)",
   },
+  /**
+   * The BUYER key your coding tools use — an `sk-aile-…` API key, not the account
+   * token above. `/v1` refuses the account token, so a machine that is signed in
+   * still needs one of these to buy, and a machine that only buys needs nothing
+   * else. Saved by `aile setup` so `aile run`, `aile env` and the next setup reuse
+   * it instead of minting another.
+   */
+  buyerKey: {
+    type: "string",
+    default: "",
+    group: "Account",
+    secret: true,
+    protected: true,
+    managedBy: "aile setup",
+    describe: "API key your coding tools use (set by `aile setup`)",
+  },
 
   // --- Connection ---------------------------------------------------------
   serverUrl: {
@@ -413,7 +429,7 @@ export function validatePatch(patch, { allowProtected = false } = {}) {
       return { ok: false, error: `unknown setting "${key}" — run \`aile config\` to list them` };
     }
     if (SCHEMA[key].protected && !allowProtected) {
-      return { ok: false, error: `"${key}" cannot be set here (it is managed by \`aile login\`)` };
+      return { ok: false, error: `"${key}" cannot be set here (it is managed by \`${SCHEMA[key].managedBy || "aile login"}\`)` };
     }
     try {
       clean[key] = coerce(key, value);

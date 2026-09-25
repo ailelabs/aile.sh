@@ -725,14 +725,15 @@ describe("nothing here records an opinion", () => {
  * THE HELP IS WHERE A FILTER IS FOUND.
  *
  * A filter nobody can find is a filter nobody has. Every one of these is
- * asserted in `--help` because that is the only place a reader who has not been
- * told about them will look — and a flag that reaches the wire correctly but is
+ * asserted in `aile lenders --help` (the overview names the command and points
+ * there) because that is the only place a reader who has not been told about
+ * them will look — and a flag that reaches the wire correctly but is
  * documented nowhere fails the request that started this work ("where is filter
  * option"), while passing every test above.
  */
 describe("every filter is documented where somebody will find it", () => {
   it("names all nine filters in the help", async () => {
-    const res = await run(["--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
     for (const flag of [
       "--model", "--max-price", "--verified", "--provider",
       "--seller", "--node", "--min-served", "--free", "--sort",
@@ -742,17 +743,17 @@ describe("every filter is documented where somebody will find it", () => {
   });
 
   it("says filters combine, since narrowing twice is the point of having nine", async () => {
-    const res = await run(["--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
     expect(res.stdout).toContain("Filters combine");
   });
 
   it("EXPLAINS --seller AGAINST --node, the one pair that is easy to confuse", async () => {
-    const res = await run(["--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
     expect(res.stdout).toContain("--seller is the person and --node is the box");
   });
 
   it("names every header twin, and says which flags have none", async () => {
-    const res = await run(["--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
     for (const h of ["x-aile-max-price", "x-aile-verified", "x-aile-provider", "x-aile-lender", "x-aile-node"]) {
       expect({ h, documented: res.stdout.includes(h) }).toEqual({ h, documented: true });
     }
@@ -760,7 +761,7 @@ describe("every filter is documented where somebody will find it", () => {
   });
 
   it("lists the four sort orders, which exist nowhere else a reader can see", async () => {
-    const res = await run(["--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
     expect(res.stdout).toContain("--sort served|free|uptime|price");
   });
 });

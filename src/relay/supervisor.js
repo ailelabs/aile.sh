@@ -191,7 +191,13 @@ async function connectOnce(config) {
     log.info(`[aile] connected as node ${nodeId}`);
   } catch (err) {
     state.lastError = err.message;
-    log.error(`[aile] connect failed: ${err.message}`);
+    // A bare "websocket error" is all a failed upgrade says when the server
+    // could not be asked why — i.e. it was not there. Name the server instead.
+    if (err.message === "websocket error" && !err.blocked && !err.rejected) {
+      log.error(`[aile] cannot reach ${config.serverUrl} — retrying`);
+    } else {
+      log.error(`[aile] connect failed: ${err.message}`);
+    }
 
     // NOTHING REACHED THE SERVER. An access proxy, a captive portal, a corporate
     // gateway — the relay never saw the request, so it has no opinion to change and

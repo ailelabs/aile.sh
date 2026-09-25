@@ -74,7 +74,12 @@ async function defaultOpenBrowser(url) {
   const { spawn } = await import("node:child_process");
   const { cmd, args } = browserOpenCommand(url);
   try {
-    spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    // A missing opener (no xdg-open on a server or in a container) arrives as an
+    // 'error' EVENT, not a throw, and an unheard one crashes the process — so
+    // `aile login` died on exactly the headless machines it prints a URL for.
+    child.on("error", () => { /* headless — the URL was printed, which is enough */ });
+    child.unref();
   } catch { /* headless — the URL was printed, which is enough */ }
 }
 
@@ -155,7 +160,7 @@ export async function connectProvider(providerId, {
     }
   }
 
-  log(`Saving ${provider.name} to your account⬦`);
+  log(`Saving ${provider.name} to your account…`);
   const res = await api.saveProvider({
     provider: providerId,
     // `suggestedLabel` is split off above rather than passed through: the whole

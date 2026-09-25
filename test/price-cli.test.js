@@ -418,7 +418,7 @@ describe("help", () => {
   it("lists the command and states the lever in one place", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aile-price-cli-"));
     scratches.push(dir);
-    const res = await run(["--help"], { data: dir });
+    const res = await run(["price", "--help"], { data: dir });
     expect(res.stdout).toContain("aile price");
     expect(res.stdout).toMatch(/max_tokens/);
     expect(res.stdout).toMatch(/it sends nothing/i);

@@ -473,13 +473,14 @@ describe("aile status carries the headline, so the number is visible without a s
       const res = await run(["status"], { data: dir });
       expect(res.code).toBe(0);
       // This box, another box, Aile-direct, and nothing — each named, and "this
-      // node" reserved for the one whose serving id is ours.
-      expect(res.stdout).toMatch(/Here[\s\S]*● this node/);
-      expect(res.stdout).toMatch(/There[\s\S]*● another node/);
+      // node" reserved for the one whose serving id is ours. The mark is ● or,
+      // on a console that cannot draw it, * (src/cli/ui.js).
+      expect(res.stdout).toMatch(/Here[\s\S]*[●*] this node/);
+      expect(res.stdout).toMatch(/There[\s\S]*[●*] another node/);
       expect(res.stdout).toMatch(/Direct[\s\S]*nodeless/);
       expect(res.stdout).toMatch(/Idle[\s\S]*no node/);
       // Exactly one line is "this node": marking all or none is the same bug.
-      expect(res.stdout.match(/● this node/g)).toHaveLength(1);
+      expect(res.stdout.match(/[●*] this node/g)).toHaveLength(1);
     } finally { try { server.stop(true); } catch { /* ignore */ } }
   });
 });

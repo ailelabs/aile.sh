@@ -267,10 +267,15 @@ describe("quoteMaxTokens, the only key on the buying side", () => {
 });
 
 describe("security invariants", () => {
-  test("the token is the only protected key, and it is not settable", () => {
+  test("the two credentials are the only protected keys, and neither is settable", () => {
+    // The account token (`aile login`) and the buyer API key (`aile setup`).
+    // Both are secrets, both are managed by the command that obtained them, and
+    // `aile config` can neither set nor reset either.
     const locked = Object.keys(SCHEMA).filter((k) => SCHEMA[k].protected);
-    expect(locked).toEqual(["renterToken"]);
+    expect(locked).toEqual(["renterToken", "buyerKey"]);
     expect(settableKeys()).not.toContain("renterToken");
+    expect(settableKeys()).not.toContain("buyerKey");
+    expect(SCHEMA.buyerKey.secret).toBe(true);
   });
 
   test("no setting can name a host, port, or allowlist entry", () => {

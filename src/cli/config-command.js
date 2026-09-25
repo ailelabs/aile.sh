@@ -15,13 +15,10 @@
 import { loadConfig, updateSettings, resetSettings, storedOverrides, CONFIG_FILE } from "../relay/config.js";
 import { SCHEMA, GROUPS, defaults, displayValue, isKnownKey, settableKeys } from "../config/settings.js";
 import { C } from "./colors.js";
+import { die } from "./ui.js";
 
-function fail(msg, hint = null) {
-  console.error(`\n${C.red}${msg}${C.reset}`);
-  if (hint) console.error(`${C.dim}${hint}${C.reset}`);
-  console.error();
-  process.exit(1);
-}
+/** The shared refusal: the mark, one sentence, what to do, exit 1. */
+const fail = (msg, hint = null) => die(msg, hint);
 
 function showAll() {
   const settings = loadConfig();

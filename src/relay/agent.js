@@ -119,6 +119,10 @@ export class RelayAgent {
 
     return new Promise((resolve, reject) => {
       let settled = false;
+      // Whether this socket ever OPENED. A connect that failed prints its own
+      // "cannot reach" line; announcing a "disconnect" of a connection that never
+      // existed made one refusal read as two problems.
+      let opened = false;
       let ws;
       try {
         // The Access service token has to ride the UPGRADE itself. Cloudflare
@@ -138,6 +142,7 @@ export class RelayAgent {
       this.ws = ws;
 
       ws.onopen = () => {
+        opened = true;
         this.lastPongAt = Date.now();
         this._startPing();
         // Capability advertisement is JSON (control plane); byte frames are binary.
@@ -183,7 +188,7 @@ export class RelayAgent {
             "[aile] another agent on this machine took over the connection — " +
             "only one can run at a time",
           );
-        } else if (!this.closed && code) {
+        } else if (!this.closed && code && opened) {
           this.log?.warn?.(`[aile] disconnected (${code}${reason ? `: ${reason}` : ""})`);
         }
         this._teardown();

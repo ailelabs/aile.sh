@@ -31,8 +31,11 @@ aile capacity   # confirm what this machine now lends
 aile start      # run as a relay node
 ```
 
-Bare `aile` on a machine that has never signed in starts a short first-run
-prompt. On a signed-in machine it is the same as `aile status`.
+Bare `aile` on a machine where nothing is set up yet starts a short first-run
+prompt. Once anything is set up (a sign-in, an API key, or a coding tool), it
+shows the `aile status` overview and, in a terminal, a menu of likely next
+steps: arrows or a number, then enter; Esc or `q` quits. Off a terminal it prints
+the overview and exits, so a script never waits on it.
 
 ## How arguments are parsed
 
@@ -56,8 +59,23 @@ These work on any command.
 | `--server <url>` | Point at a different relay for this one command. Overrides `serverUrl`. |
 | `--insecure` | Permit a plain `http://` server. Staging only; refused otherwise. |
 | `--json` | Machine-readable output. Supported on the read commands. |
-| `--help`, `-h` | Full usage text. |
+| `--help`, `-h` | The command overview. After a command (`aile lenders --help`), that command's examples and details. Help never runs the command or touches the network. |
 | `--version`, `-v` | Print the client version. |
+
+## How output behaves
+
+- **Colour** only on a terminal, and never with `NO_COLOR` set.
+- **Marks** (✓ ✗ ❯ ●) where the terminal can draw them, and plain ASCII
+  (`+ x > *`) where it may not, such as the classic Windows console window.
+  `AILE_ASCII=1` forces ASCII anywhere.
+- **Spinners** on network waits, drawn on stderr and only on a terminal: stdout
+  stays clean for a pipe, and a script sees nothing extra. `AILE_NO_SPINNER=1`
+  turns them off.
+- **Tables and menus fit the window**: a long path is shortened with `…` rather
+  than wrapped.
+- **A typo** gets a suggestion (`Unknown command "stup". Did you mean aile
+  setup?`) and exit code 1.
+- **`AILE_DEBUG=1`** prints the full error behind a one-line failure message.
 
 ## Where files live
 

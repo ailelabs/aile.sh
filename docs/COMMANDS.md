@@ -7,6 +7,133 @@ Every command the `aile` client accepts. Global options (`--server`,
 `--insecure`, `--json`) are documented on the [CLI overview](./CLI.md) and are
 not repeated per command.
 
+## Coding tools
+
+### setup
+
+Use aile from the coding tools on this machine. With no arguments, it lists what
+is installed, lets you pick, gets an API key, shows every change, and applies
+them after you confirm.
+
+```bash
+aile setup                         # pick from what is installed
+aile setup claude codex            # just these
+aile setup --all --yes             # everything found, no questions
+aile setup claude --mode default   # make aile Claude Code's default
+```
+
+| Tool | What setup does |
+|---|---|
+| Claude Code | A `claudeaile` shortcut. With `--mode default`, it also writes `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` into `~/.claude/settings.json`. |
+| Codex | A `codexaile` shortcut. With `--mode default`, it also adds an `aile` provider to `~/.codex/config.toml`. |
+| opencode | Adds aile's opencode plugin and its key. |
+| Factory Droid, OpenClaw | Adds aile as an extra provider, with the Claude and Codex models. |
+| Qwen Code, Aider, Goose | `qwenaile`, `aideraile`, `gooseaile` shortcuts. |
+| Cursor, Cline, Roo, Kilo, Continue, Zed, Windsurf (Devin Desktop), JetBrains AI Assistant, Crush, the VS Code extension | Prints the values to paste. These keep their settings inside the app. |
+
+**The key.** If this machine is signed in, setup mints a key on that account. If
+not, it opens your browser to approve one. Approving a key does not sign the
+machine in, and it does not log out your other machines. A key is saved and
+reused by later runs, `aile run` and `aile env`.
+
+**Shortcuts** go in the first writable directory already on your PATH:
+
+- macOS and Linux: `~/.local/bin`
+- Windows: npm's `%APPDATA%\npm`, or `%LOCALAPPDATA%\Microsoft\WindowsApps`
+
+On Windows, both `.cmd` and a Git Bash script are written. A tool installed off
+PATH is started by its full path.
+
+**Safe edits.** A file that is not plain JSON (comments, JSON5) is never
+rewritten; you get the snippet instead. Every value replaced is recorded.
+
+| Flag | What it does |
+|---|---|
+| `--mode <m>` | For Claude Code and Codex: `shortcut` (default), `default` or `both`. |
+| `--all` | Every tool found, instead of asking. |
+| `--yes` | No questions; replace another gateway's settings (restored by `--remove`). |
+| `--key <key>`, `--key -` | Use an existing key, or read it from stdin. |
+| `--new-key` | Mint a new key instead of reusing the saved one. |
+| `--model <id>` | A default model for the tools that take one. |
+| `--models all` | Give Droid and OpenClaw every model, not just Claude and Codex. |
+| `--shortcut-name <n>` | Name the shortcut, when setting up one tool. |
+| `--dry-run` | Show what would change. Write nothing. |
+
+`aile setup status` shows what is set up and where. `aile setup refresh` gives
+every tool already set up the current key: `--new-key` mints a new one (after
+revoking a key, or signing in to another account), and `--key` uses one you have.
+
+`aile setup --remove [tool…]` puts every file back as it was and deletes the
+shortcuts. Removing every tool also forgets the key on this machine, and
+`--revoke` revokes it on your account too.
+
+Not supported yet, because they have no setting that points at another
+provider: Gemini CLI (it speaks only Google's own API format), GitHub Copilot,
+Amp, Kiro, Warp, Augment and Trae. `aile detect` still lists them.
+
+**Run from inside an agent.** When setup runs inside Claude Code, Codex,
+opencode or another agent, it pre-selects that tool. It also tells you that
+changing that tool's settings takes effect in its next session. Whether to ask
+questions is still decided by whether there is a terminal.
+
+### detect
+
+Which coding tools are installed here, and where. Aliased as `tools`.
+
+```bash
+aile detect
+aile detect --json
+```
+
+A tool is found in any of these places:
+
+- a command on PATH;
+- a command at its installer's own location, even off PATH (`~/.local/bin`,
+  `~/.opencode/bin`, `~/.claude/local`, uv and pipx tool folders, …);
+- an app (Cursor, Devin Desktop, Zed, Kiro, Warp);
+- an extension in VS Code, VSCodium, Cursor, Devin Desktop, Kiro or Trae
+  (Cline, Roo, Kilo, Continue, Claude Code, Codex, Copilot).
+
+Each tool's own directory variables are honoured, such as `CODEX_HOME`,
+`CLAUDE_CONFIG_DIR`, `OPENCODE_INSTALL_DIR`, `VSCODE_EXTENSIONS` and
+`UV_TOOL_DIR`. A config directory with nothing else is shown as a hint, not as
+installed.
+
+`--fast` skips reading versions. `--json` also reports `invoker`, the coding
+agent running the command, if any.
+
+### run
+
+Start a tool through aile without editing anything. Everything after the tool's
+name is passed to the tool unchanged.
+
+```bash
+aile run claude
+aile run codex exec "fix the failing test"
+aile run --model cc/claude-opus-5 aider
+```
+
+The key travels in the tool's environment, never on its command line.
+
+### env
+
+Print the environment `aile run` would set, for any other way of starting a tool.
+
+```bash
+eval "$(aile env claude)"
+aile env --shell powershell codex
+```
+
+`--shell` takes `sh`, `fish`, `powershell` or `cmd`.
+
+### doctor
+
+Checks that the server answers, the key works, each shortcut is on PATH, and each
+tool's config still points at aile. It also warns about shell variables that
+would override those settings.
+
+---
+
 ## Account
 
 ### login
@@ -49,7 +176,14 @@ stay on the server.** This does not unlink anything.
 
 ```bash
 aile logout
+aile logout --tools   # also take aile out of your coding tools, and revoke their key
 ```
+
+The coding tools `aile setup` configured use a separate API key. It keeps working
+after you sign out, so logout says so. On a terminal it asks whether to remove
+aile from the tools too. Signing in as a **different** account offers to move the
+tools to a key on that account (`--yes` accepts); the manual equivalent is
+`aile setup refresh --new-key`.
 
 ### donate
 
@@ -99,13 +233,12 @@ echo "$KEY" | aile connect groq --key -
 Without a terminal and without `--key`, the client declines rather than hanging
 on a stdin nobody is writing to.
 
-> [!NOTE]
-> **Several accounts of one provider**
->
-> Personal and work subscriptions have separate quotas, so both can earn. Use
-> `--label` to name them. Use `--account` when the provider identifies nothing
-> itself. Without it the second link overwrites the first. Use `--replace <n>` to
-> rotate a credential in place. A re-pasted API key already rotates onto its own row.
+<Note title="Several accounts of one provider">
+Personal and work subscriptions have separate quotas, so both can earn. Use
+`--label` to name them. Use `--account` when the provider identifies nothing
+itself. Without it the second link overwrites the first. Use `--replace <n>` to
+rotate a credential in place. A re-pasted API key already rotates onto its own row.
+</Note>
 
 ### accounts
 
@@ -163,19 +296,19 @@ aile usage --json
 
 ### nodeless
 
-Serve an API-key account with no machine in the path.
+Serve an account with no machine in the path. `on` is accepted for API-key
+accounts only; `off` works for any account.
 
 ```bash
 aile nodeless 1 on
 aile nodeless 1 off
 ```
 
-> [!WARNING]
-> **This removes your kill switch**
->
-> With nodeless on, turning your node off no longer stops the account. Only
-> `aile nodeless <n> off` does. Refused for subscriptions by design. The client
-> declines rather than storing a setting the server would ignore.
+<Warning title="This removes your kill switch">
+With nodeless on, turning your node off no longer stops the account. Only
+`aile nodeless <n> off` does. `on` is refused for a subscription by the CLI, not
+the relay; the web dashboard can turn it on. See [Nodeless](https://aile.sh/docs/lend/nodeless).
+</Warning>
 
 ### rates
 
@@ -203,11 +336,10 @@ aile rates on claude-opus-5                      # serve it again
 `disabled` is kept separate from price, so clearing a price never re-enables a
 model you turned off.
 
-> [!TIP]
-> **rates is not price**
->
-> `aile rates` sets what **you** charge. `aile price` quotes what a request would
-> **cost you** to buy. The names are deliberately different.
+<Tip title="rates is not price">
+`aile rates` sets what **you** charge. `aile price` quotes what a request would
+**cost you** to buy. The names are deliberately different.
+</Tip>
 
 ### disconnect
 
@@ -240,12 +372,11 @@ addresses**. A public value would turn the node into an open proxy.
 Buyers send `local/<model>`. The relay strips `local/`, so your endpoint sees the
 id it advertised.
 
-> [!WARNING]
-> **Self-hosted traffic is not blind**
->
-> A local model runs on your machine, so your machine reads the prompts it answers.
-> Subscription and API-key traffic are unaffected and stay blind. The client repeats
-> this at `aile local`, `aile capacity`, `aile status` and `aile start`.
+<Warning title="Self-hosted traffic is not blind">
+A local model runs on your machine, so your machine reads the prompts it answers.
+Subscription and API-key traffic are unaffected and stay blind. The client repeats
+this at `aile local`, `aile capacity`, `aile status` and `aile start`.
+</Warning>
 
 ### start
 
@@ -265,8 +396,14 @@ aile start
 
 ### status
 
-What this machine is: its id, its server, whether it is signed in, its connected
-accounts, and whether the relay is running.
+An overview of this machine in three parts:
+- **This machine**: its id, server and settings.
+- **Coding tools**: the API key, the tools set up to use aile, and the tools
+  found here but not yet set up.
+- **Lending**: sign-in, connected accounts, what they served, and whether the
+  relay is running.
+
+It ends with the next step that applies, such as `aile setup` or `aile start`.
 
 ```bash
 aile status
@@ -274,6 +411,9 @@ aile status --json
 ```
 
 Reads the lock file, so it can report a relay running in another process.
+`--json` returns one object: `machine`, `server`, `config`, `signedIn`,
+`account`, `accounts`, `served`, `relay`, `key` (masked), `tools`, `notSetUp`
+and `settingsChanged`.
 
 ### stats
 
@@ -335,13 +475,12 @@ first, ties to the least-busy machine. The top row is the machine your next
 request goes to. `--sort` asks for a reading order instead, and the footer then
 says so.
 
-> [!TIP]
-> **Five of these have a header twin**
->
-> `--max-price`, `--verified`, `--provider`, `--seller` and `--node` map to
-> `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender` and
-> `x-aile-node`, so a choice you make here is one you can act on in a request. See
-> [Headers](https://aile.sh/docs/reference/headers). **`--seller` is the person; `--node` is the box.**
+<Tip title="Five of these have a header twin">
+`--max-price`, `--verified`, `--provider`, `--seller` and `--node` map to
+`x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender` and
+`x-aile-node`, so a choice you make here is one you can act on in a request. See
+[Headers](https://aile.sh/docs/reference/headers). **`--seller` is the person; `--node` is the box.**
+</Tip>
 
 A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
 `local/llama3`), or a bare id with `x-aile-provider`, which names the provider and
@@ -368,7 +507,9 @@ aile price gpt-5.2 --in 3000
 
 Output is priced at the `max_tokens` your request **authorises**, not at the reply
 that comes back. That field is the one lever you hold over your bill. The default
-ceiling is `quoteMaxTokens` (4096).
+ceiling is `quoteMaxTokens` (4096). A key's balance is billed up to the cap sent
+upstream, which tools, thinking, an unset `max_tokens` or a route that sends no cap
+(codex) can put above `aile price`.
 
 ### spend
 
@@ -419,10 +560,14 @@ install; off a terminal it names the command instead of running an unattended
 ### help
 
 ```bash
-aile help
-aile --help
+aile help                 # every command, grouped
+aile help lenders         # one command: examples and details
+aile lenders --help       # the same
 aile -h
 ```
+
+Help runs nothing: `aile start --help` does not start a node, and
+`aile lenders --help` makes no network call.
 
 ### version
 

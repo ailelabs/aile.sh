@@ -25,6 +25,7 @@
 import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { C } from "./colors.js";
+import { sym, width, padTo, truncate } from "./ui.js";
 
 const CTRL_C = "";
 const CTRL_D = "";
@@ -125,7 +126,7 @@ function readPiped(input, signal = null) {
  * broken, and they have no way to connect that to us.
  */
 export function promptSecret(question, {
-  input = process.stdin, output = process.stdout, mask = "•",
+  input = process.stdin, output = process.stdout, mask = sym.bullet,
   signal = null, hotkeys = null,
 } = {}) {
   if (!input.isTTY || typeof input.setRawMode !== "function") return readPiped(input, signal);
@@ -248,6 +249,30 @@ export function promptSecret(question, {
  * Returns the chosen index, or `null` if the caller aborted (nothing was picked)
  * — distinct from choosing item 0.
  */
+/**
+ * One menu row, never wider than the terminal.
+ *
+ * A row that wraps is two physical lines, and the redraw walks the cursor up by
+ * ROWS — so one long note on a narrow window left a torn copy of the menu on
+ * screen after every keypress. The note gives way first (it is the part a
+ * person can do without), then, on a truly narrow window, the row itself.
+ *
+ * Labels are padded to the widest one so the notes form a column rather than
+ * a ragged edge.
+ */
+function menuRow(prefix, label, note, { labelW = 0, bold = false, columns = 0 } = {}) {
+  const lab = bold ? `${C.bold}${label}${C.reset}` : String(label);
+  const room = columns ? columns - 1 : Infinity;
+  const bare = `${prefix}${lab}`;
+  if (width(bare) > room) return truncate(bare, room);
+  if (!note) return bare;
+  const head = `${prefix}${padTo(lab, labelW)}`;
+  const left = room - width(head) - 2;
+  if (left < 8) return bare;
+  const n = width(note) > left ? truncate(note, left) : note;
+  return `${head}  ${C.dim}${n}${C.reset}`;
+}
+
 export function promptChoice(title, choices, {
   input = process.stdin, output = process.stdout, signal = null, initial = 0,
   headings = null,
@@ -269,6 +294,7 @@ export function promptChoice(title, choices, {
     let pending = "";
     let anchor = index;
     const labelOf = (c) => (typeof c === "string" ? c : c.label);
+    const labelW = Math.max(0, ...choices.map((c) => width(labelOf(c))));
 
     // Headings are rows, so the window and the line count are computed over the
     // same sequence that is printed rather than over the choices alone.
@@ -315,16 +341,16 @@ export function promptChoice(title, choices, {
       // is zero. Omitting one would change the number of lines between redraws,
       // and the cursor walk up is a fixed count — a line that comes and goes is
       // a line left behind on screen.
-      if (!fits) line(above ? `  ${C.dim}↑ ${above} more${C.reset}` : "");
+      if (!fits) line(above ? `  ${C.dim}${sym.up} ${above} more${C.reset}` : "");
       for (const r of slice) {
         if (r.heading) { line(`  ${C.bold}${r.heading}${C.reset}`); continue; }
         const on = r.i === index;
         const c = r.c;
-        const note = typeof c === "string" ? "" : (c.note ? `  ${C.dim}${c.note}${C.reset}` : "");
-        const marker = on ? `${C.cyan}❯${C.reset}` : " ";
-        line(`${marker} ${r.i + 1}. ${on ? C.bold : ""}${labelOf(c)}${on ? C.reset : ""}${note}`);
+        const note = typeof c === "string" ? "" : (c.note || "");
+        const marker = on ? `${C.cyan}${sym.arrow}${C.reset}` : " ";
+        line(menuRow(`${marker} ${r.i + 1}. `, labelOf(c), note, { labelW, bold: on, columns: Number(output.columns) || 0 }));
       }
-      if (!fits) line(below ? `  ${C.dim}↓ ${below} more${C.reset}` : "");
+      if (!fits) line(below ? `  ${C.dim}${sym.down} ${below} more${C.reset}` : "");
       painted = lines;
     }
 
@@ -394,11 +420,18 @@ export function promptChoice(title, choices, {
       }
       // Escape and Ctrl+U both abandon a mistyped number. Bare escape only —
       // the arrow keys below arrive as a longer sequence and are not caught here.
+      // With no number half-typed, Escape (or q) leaves the menu: it resolves
+      // null, which every caller already reads as "cancelled". Ctrl+C was the
+      // only way out before, and it killed the whole command.
       if (s === "\x1b" || s === CTRL_U) {
-        if (!pending) return;
+        if (!pending) {
+          if (s === "\x1b") return done(null);
+          return;
+        }
         clearPending();
         return paint();
       }
+      if (s === "q" && !pending) return done(null);
       if (s === "\x1b[A" || s === "k") {
         clearPending();
         index = (index - 1 + choices.length) % choices.length;
@@ -422,6 +455,95 @@ export function promptChoice(title, choices, {
       }
     }
 
+    input.on("data", onData);
+  });
+}
+
+/**
+ * Yes/no. Enter takes the default. No terminal answers the default too — a
+ * prompt that cannot be shown must not block, and every caller passes the
+ * default that is safe to take unattended.
+ */
+export async function promptConfirm(question, { defaultYes = true, input = process.stdin, output = process.stdout } = {}) {
+  if (!input.isTTY) return defaultYes;
+  const hint = defaultYes ? "Y/n" : "y/N";
+  const answer = (await promptLine(`${question} ${C.dim}(${hint})${C.reset} `, { input, output })).toLowerCase();
+  if (!answer) return defaultYes;
+  return /^y(es)?$/.test(answer);
+}
+
+/**
+ * Tick several. Arrows or j/k move, space toggles, `a` toggles all, enter
+ * confirms. Resolves the chosen indices, or `null` when there is no terminal
+ * or the list was abandoned (Esc / q).
+ *
+ * `choices` are `{label, note?, checked?}`; `headings` works as in
+ * `promptChoice`. Redrawn in place, and bounded by the window height for the
+ * same reason `promptChoice` is.
+ */
+export function promptMulti(title, choices, { input = process.stdin, output = process.stdout, headings = null } = {}) {
+  if (!input.isTTY || typeof input.setRawMode !== "function") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const on = choices.map((c) => Boolean(c.checked));
+    const labelW = Math.max(0, ...choices.map((c) => width(c.label)));
+    let index = 0;
+    let painted = 0;
+    const wasRaw = Boolean(input.isRaw);
+    const ROWS = [];
+    for (const [i, c] of choices.entries()) {
+      if (headings?.[i]) ROWS.push({ heading: headings[i] });
+      ROWS.push({ i, c });
+    }
+    const budget = () => {
+      const h = Number(output.rows) || 0;
+      return h ? Math.max(5, h - 5) : Infinity;
+    };
+    function paint() {
+      if (painted) output.write(`\x1b[${painted}A`);
+      let lines = 0;
+      const line = (s) => { output.write(`\x1b[2K${s}\n`); lines++; };
+      const fits = ROWS.length <= budget();
+      let slice = ROWS, above = 0, below = 0;
+      if (!fits) {
+        const span = budget() - 2;
+        const at = ROWS.findIndex((r) => r.i === index);
+        const start = Math.min(Math.max(at - (span >> 1), 0), ROWS.length - span);
+        slice = ROWS.slice(start, start + span);
+        above = start;
+        below = ROWS.length - start - span;
+      }
+      if (!fits) line(above ? `  ${C.dim}${sym.up} ${above} more${C.reset}` : "");
+      for (const r of slice) {
+        if (r.heading) { line(`  ${C.bold}${r.heading}${C.reset}`); continue; }
+        const cur = r.i === index;
+        const box = on[r.i] ? `${C.green}[x]${C.reset}` : "[ ]";
+        const marker = cur ? `${C.cyan}${sym.arrow}${C.reset}` : " ";
+        line(menuRow(`${marker} ${box} `, r.c.label, r.c.note || "", { labelW, bold: cur, columns: Number(output.columns) || 0 }));
+      }
+      if (!fits) line(below ? `  ${C.dim}${sym.down} ${below} more${C.reset}` : "");
+      line(menuRow("  ", `${C.dim}space toggles ${sym.dot} a all ${sym.dot} enter confirms ${sym.dot} esc cancels${C.reset}`, "", { columns: Number(output.columns) || 0 }));
+      painted = lines;
+    }
+    function restore() {
+      input.removeListener("data", onData);
+      try { input.setRawMode(wasRaw); } catch { /* stream gone */ }
+      input.pause();
+    }
+    function onData(chunk) {
+      const s = String(chunk);
+      if (s === CTRL_C) { restore(); output.write("\n"); process.exit(130); return; }
+      if (s === "\r" || s === "\n") { restore(); return resolve(on.flatMap((v, i) => (v ? [i] : []))); }
+      if (s === "\x1b" || s === "q") { restore(); return resolve(null); }
+      if (s === "\x1b[A" || s === "k") { index = (index - 1 + choices.length) % choices.length; return paint(); }
+      if (s === "\x1b[B" || s === "j") { index = (index + 1) % choices.length; return paint(); }
+      if (s === " ") { on[index] = !on[index]; return paint(); }
+      if (s === "a") { const all = on.every(Boolean); on.fill(!all); return paint(); }
+    }
+    if (title) output.write(`${title}\n`);
+    input.setRawMode(true);
+    input.setEncoding("utf8");
+    input.resume();
+    paint();
     input.on("data", onData);
   });
 }

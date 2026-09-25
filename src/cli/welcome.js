@@ -24,6 +24,7 @@
 
 import { promptChoice, isInteractive } from "./prompt.js";
 import { C } from "./colors.js";
+import { sym } from "./ui.js";
 
 /**
  * The three ways in, in the order they are worth considering.
@@ -40,6 +41,14 @@ import { C } from "./colors.js";
  * what the contributor gives up.
  */
 export const CHOICES = [
+  // BUYING FIRST: most people who type `aile` for the first time want to point
+  // Claude Code or Codex at it, and that path needs no sign-in on this machine
+  // at all (the browser approves a key, nothing more).
+  {
+    id: "setup",
+    label: "Use aile in my coding tools",
+    note: "Claude Code, Codex, opencode · a key from your browser",
+  },
   {
     id: "browser",
     label: "Sign in with your browser",
@@ -70,7 +79,8 @@ export async function welcome({
   choose = promptChoice,
 } = {}) {
   log(`\n${C.cyan}${C.bold}aile.sh${C.reset}`);
-  log(`${C.dim}Share your AI subscription's spare capacity and get paid for it.`);
+  log(`${C.dim}Use Claude, GPT and more from your coding tools, paid per request.`);
+  log(`Or share your AI subscription's spare capacity and get paid for it.`);
   log(`Traffic is relayed encrypted — this machine cannot read what it carries.${C.reset}`);
 
   if (!interactive) return null;
@@ -79,14 +89,16 @@ export async function welcome({
   // "Get started" rather than "sign in": one of the three answers is not a
   // sign-in, and a question that presumes otherwise makes the third option look
   // like a mistake in the list.
-  const index = await choose(`${C.bold}How would you like to get started?${C.reset}`, CHOICES);
+  const index = await choose(`${C.bold}How would you like to get started?${C.reset} ${C.dim}(${sym.up}${sym.down} or a number, then enter)${C.reset}`, CHOICES);
   if (index === null || index === undefined) return null;
   return CHOICES[index].id;
 }
 
 /** What to print when we cannot ask — a pipe, a container, a CI job. */
 export function welcomeNonInteractive({ log = console.log } = {}) {
-  log(`\nSign in first:`);
+  log(`\nUse aile from Claude Code, Codex, opencode and more:`);
+  log(`  ${C.cyan}aile setup --all --yes${C.reset}      ${C.dim}every tool found here${C.reset}`);
+  log(`\nOr sign in to lend:`);
   log(`  ${C.cyan}aile login${C.reset}                  ${C.dim}browser, or paste a token${C.reset}`);
   log(`  ${C.cyan}aile login --paste${C.reset}          ${C.dim}no browser on this machine${C.reset}`);
   log(`  ${C.cyan}aile login --token <token>${C.reset}  ${C.dim}scripts, images, systemd${C.reset}`);

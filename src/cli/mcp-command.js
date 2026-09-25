@@ -30,13 +30,10 @@ import {
   runAttendedJob,
 } from "../mcp/attended.js";
 import { C } from "./colors.js";
+import { die } from "./ui.js";
 
-function fail(msg, hint = null) {
-  console.error(`\n${C.red}${msg}${C.reset}`);
-  if (hint) console.error(`${C.dim}${hint}${C.reset}`);
-  console.error();
-  process.exit(1);
-}
+/** The shared refusal: the mark, one sentence, what to do, exit 1. */
+const fail = (msg, hint = null) => die(msg, hint);
 
 /** The runtime line, in the three states detectRuntime distinguishes. */
 function runtimeLine(runtime) {

@@ -133,7 +133,7 @@ async function readJson(res, base, pathname) {
 
 async function call(pathname, {
   serverUrl, method = "GET", body = null, token = null,
-  timeoutMs = 20000, insecure = false, expectJson = true,
+  timeoutMs = 20000, insecure = false, expectJson = true, headers = null,
 } = {}) {
   const base = String(serverUrl || loadConfig().serverUrl).replace(/\/+$/, "");
   assertTransportOk(base, { insecure });
@@ -149,6 +149,7 @@ async function call(pathname, {
         accept: "application/json",
         ...(body ? { "content-type": "application/json" } : {}),
         ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(headers || {}),
         ...accessHeaders(),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -208,8 +209,8 @@ export const api = {
    * explicitly rather than spread, for the reason `saveProvider` gives: a field
    * reaches the server when someone added it here on purpose.
    */
-  startDeviceLogin: ({ codeChallenge = null, clientLabel = null, ...opts } = {}) =>
-    call("/auth/device", { ...opts, method: "POST", body: omitAbsent({ codeChallenge, clientLabel }) }),
+  startDeviceLogin: ({ codeChallenge = null, clientLabel = null, purpose = null, keyName = null, ...opts } = {}) =>
+    call("/auth/device", { ...opts, method: "POST", body: omitAbsent({ codeChallenge, clientLabel, purpose, keyName }) }),
 
   /** Resolves {status}; 429/403/410/404 poll states come back as status strings, not throws. */
   async pollDeviceLogin({ deviceCode, codeVerifier = null, ...opts }) {
@@ -460,6 +461,51 @@ export const api = {
     call(limit ? `/market/spend?limit=${encodeURIComponent(limit)}` : "/market/spend", opts),
 
   health: (opts) => call("/health", opts),
+
+  // --- Buying: keys and the model list ----------------------------------------
+
+  /**
+   * Mint a buyer API key (`sk-aile-…`) on the signed-in account.
+   *
+   * The account token (`ail_…`) is a lender credential and `/v1` refuses it, so a
+   * machine that is signed in still needs one of these to BUY. The secret comes
+   * back exactly once, here; the server keeps only its hash.
+   */
+  createKey: ({ name = null, ...opts } = {}) =>
+    call("/keys", { ...opts, method: "POST", body: omitAbsent({ name }) }),
+
+  /** Revoke a buyer key on the signed-in account, by its id (not its secret). */
+  revokeKey: ({ id, ...opts }) =>
+    call(`/keys/${encodeURIComponent(id)}`, { ...opts, method: "DELETE" }),
+
+  /**
+   * The public model list, raw OpenAI shape (`{object, data}`) — no key needed.
+   * Used to pick the models a tool that cannot discover them is told about.
+   */
+  listModels: (opts = {}) => call("/v1/models", opts),
+
+  /**
+   * Is this buyer key live? Asked of `POST /v1/messages/count_tokens`, which
+   * runs the same key gate as a real request but selects no lender and bills
+   * nothing — so checking a key costs its owner nothing and dials nobody.
+   *
+   * Resolves `{ok, status, reason}` and never throws for a refusal; only an
+   * unreachable server throws, because that says nothing about the key.
+   */
+  async validateKey({ key, ...opts }) {
+    try {
+      await call("/v1/messages/count_tokens", {
+        ...opts, method: "POST",
+        headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+        body: { model: "cc/claude-sonnet-5", messages: [{ role: "user", content: "ok" }] },
+      });
+      return { ok: true, status: 200, reason: null };
+    } catch (e) {
+      if (!(e instanceof ApiError) || !e.status || e.status >= 500) throw e;
+      const reason = e.body?.error?.message || e.message;
+      return { ok: false, status: e.status, reason };
+    }
+  },
 };
 
 export { call as apiCall };

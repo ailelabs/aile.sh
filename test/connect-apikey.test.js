@@ -377,7 +377,7 @@ describe("the provider menu", () => {
   });
 
   it("documents both key forms in the usage text", async () => {
-    const { all } = await runCli(["--help"], { data });
+    const { all } = await runCli(["connect", "--help"], { data });
     expect(all).toMatch(/--key <key>/);
     expect(all).toMatch(/--key -/);
   });

@@ -32,6 +32,7 @@ import { spawn } from "node:child_process";
 import { AILE_DIR } from "../relay/paths.js";
 import { APP_VERSION } from "./version.js";
 import { C } from "../cli/colors.js";
+import { spawnPlan } from "../setup/exec.js";
 
 /**
  * The published package. `bin.aile` → this CLI, so `-g` puts `aile` on PATH.
@@ -129,11 +130,11 @@ function writeCache(latest, prev) {
 }
 
 /** Hit the registry for the `latest` dist-tag. Returns null on any failure. */
-async function fetchLatest() {
+async function fetchLatest(timeoutMs = FETCH_TIMEOUT_MS) {
   try {
     const res = await fetch(REGISTRY_URL, {
       headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
     const json = await res.json();
@@ -148,10 +149,12 @@ async function fetchLatest() {
  * Called from index.js when argv is {@link REFRESH_ARGV}; also safe to await
  * directly (that is what `aile update` does for a fresh answer).
  */
-export async function refreshCache() {
+export async function refreshCache({ timeoutMs } = {}) {
   if (updateCheckDisabled()) return null;
   const prev = readCache();
-  const latest = await fetchLatest();
+  // The background refresher keeps its 1.5 s: nobody is waiting on it. A person
+  // who typed `aile update` is, and a slow registry is not "offline".
+  const latest = await fetchLatest(timeoutMs);
   writeCache(latest, prev);
   return latest ?? prev?.latest ?? null;
 }
@@ -243,12 +246,17 @@ export function printUpdateNotice() {
  */
 export function runSelfUpdate({ tag = "latest" } = {}) {
   return new Promise((resolve) => {
+    // npm is a batch file on Windows, and Node (since the 2024 batch-file fix)
+    // refuses to spawn one without a shell — so this failed on every Windows
+    // machine. spawnPlan runs it through cmd.exe with its arguments escaped.
     const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const plan = spawnPlan(npm, ["install", "-g", "--ignore-scripts", `${PACKAGE_NAME}@${tag}`]);
     let child;
     try {
-      child = spawn(npm, ["install", "-g", "--ignore-scripts", `${PACKAGE_NAME}@${tag}`], {
+      child = spawn(plan.command, plan.args, {
         stdio: "inherit",
         windowsHide: true,
+        ...plan.options,
       });
     } catch {
       return resolve(1);

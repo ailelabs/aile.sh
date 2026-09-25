@@ -10,7 +10,96 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-25
+
+### Added
+
+- `aile setup` — use aile from the coding tools on this machine in one step. It
+  finds what is installed, gets an API key (on this account if signed in,
+  otherwise by approving it in the browser — which neither signs the machine in
+  nor logs out your other machines), shows what it will change, and applies it.
+  - Claude Code and Codex get shortcuts, `claudeaile` and `codexaile`, and their
+    usual commands stay as they were. `--mode default` makes aile their default
+    instead (`~/.claude/settings.json`, `~/.codex/config.toml`), and
+    `--mode both` does both. Claude Code's `/model` lists every Claude model
+    aile serves (`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`).
+  - opencode gets aile's plugin. Factory Droid and OpenClaw get aile as an
+    extra provider. Qwen Code, Aider and Goose get shortcuts.
+  - Cursor, Cline, Roo Code, Kilo Code, Continue, Zed, Windsurf, Crush and the
+    Claude Code VS Code extension keep their settings in the app, so setup
+    prints the values to paste.
+  - Shortcuts work in bash, zsh, fish, cmd, PowerShell and Git Bash.
+  - Files that are not plain JSON are never rewritten. Every value replaced is
+    recorded, and `aile setup --remove` puts each file back as it was.
+- `aile setup status`, `aile setup refresh [--new-key | --key <key>]` (a new
+  key for every tool already set up), `aile setup --dry-run`, and
+  `aile setup --remove [--revoke]`.
+- `aile detect` lists the coding tools installed here, and where:
+  - commands on PATH, and at installer locations off it (`~/.local/bin`,
+    `~/.opencode/bin`, uv and pipx tool folders, …);
+  - apps;
+  - extensions in VS Code, VSCodium, Cursor, Devin Desktop, Kiro and Trae;
+  - each tool's own directory variables;
+  - versions.
+
+  It also names the tools setup cannot use yet: Gemini CLI, GitHub Copilot,
+  Amp, Kiro, Warp, Augment and Trae. Run from inside a coding agent, setup
+  pre-selects that agent and says its new settings take effect in its next
+  session.
+- `aile run <tool>` starts Claude Code, Codex, Qwen Code, Aider or Goose
+  through aile without editing anything. `aile env <tool>` prints the same
+  environment for any other launcher.
+- `aile doctor` checks the server, the key and each configured tool.
+- Signing in as a different account offers to move the tools' key to it.
+  `aile logout` says when the tools still use aile, and `--tools` also removes
+  it from them.
+- The first run offers the coding-tools setup first.
+- `aile status --json`: the overview as one object.
+
+### Changed
+
+- Help is two levels. `aile --help` fits one screen, grouped by what you are
+  doing. `aile <command> --help` (or `aile help <command>`) gives that command's
+  examples and details. Help never runs the command and never touches the
+  network.
+- Bare `aile` on a machine that is set up in any way shows an overview in three
+  parts: this machine, coding tools, lending. It ends with the next step. In a
+  terminal it then offers a menu. A machine that only buys no longer gets the
+  first-run welcome again.
+- Output looks the same across commands: one set of success, warning and
+  failure marks, and a spinner while waiting on the network (stderr, terminal
+  only). Tables and menus fit the window. Where the console cannot draw ✓ ❯ ●,
+  plain ASCII is used; `AILE_ASCII=1` forces it.
+- A failure is one sentence and what to do about it, not a stack trace;
+  `AILE_DEBUG=1` shows the trace. An unreachable server is named. An expired
+  sign-in says to run `aile login`.
+- A mistyped command suggests the one it was close to, and exits 1.
+- Esc or `q` leaves a menu. The notes in a menu line up.
+- `aile start` says where it is connecting and how to check on it. A server it
+  cannot reach is named, not reported as "websocket error".
+- Confirmation prompts ask the same way everywhere, and a "no" says
+  "Nothing changed."
+
+### Fixed
+
+- `aile update` on Windows: npm is a batch file, which Node refuses to start
+  without a shell, so the update never ran. It also waits longer for the
+  registry when you asked for the update.
+- `aile login` no longer crashes on a Linux machine with no browser opener
+  (`xdg-open`), such as a server or a container. It prints the URL, as it
+  always meant to.
+- On the sign-in screen, `c` copies the URL shown, not a different page.
+- `aile wallet` links to the withdraw page on the website, not the API host.
+- Contributing from the first-run menu no longer prints the banner twice.
+- A menu row wider than the window left torn copies of the menu on each
+  keypress.
+- `aile status` no longer counts the saved API key as a changed setting.
+- `aile logout` on a machine that was not signed in says so.
+- `aile connect` ends with `aile start` when nothing is serving yet.
+
 ## [1.0.1]
+
+Never published on its own; these changes ship in 1.1.0.
 
 ### Changed
 

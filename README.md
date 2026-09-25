@@ -13,6 +13,27 @@ npm install -g aile.sh     # or: bun install -g aile.sh
 
 Requires Node 20 or newer. Nothing else to install.
 
+## Use aile from your coding tools
+
+```bash
+npx aile.sh setup      # finds Claude Code, Codex, opencode, … and sets each up
+claudeaile             # Claude Code through aile; plain `claude` is unchanged
+codexaile              # the same for Codex
+```
+
+`aile setup` opens your browser to approve an API key. That machine is not
+signed in to your account, and your other machines stay signed in. Tools that
+keep their settings in an app (Cursor, Cline, Continue, Zed) get the three
+values to paste.
+
+```bash
+aile detect                     # which coding tools are installed, and where
+aile setup claude --mode default   # make aile Claude Code's default instead
+aile setup refresh --new-key    # a new key for every tool already set up
+aile setup --remove             # put every file back exactly as it was
+aile doctor                     # check the key, the server and each tool
+```
+
 ## Start lending
 
 ```bash
