@@ -243,14 +243,24 @@ export function printUpdateNotice() {
  * `--ignore-scripts` because this package has none, so it costs nothing — and it
  * removes arbitrary code execution from an install that runs unattended, at the one
  * moment the user has been told to expect churn on their terminal.
+ *
+ * `--prefer-online` because the version pinned above came from a FRESH registry
+ * read, while npm answers from its own metadata cache for up to five minutes. In
+ * the minutes after a release that cache can predate it, and the install failed
+ * ETARGET ("No matching version found for aile.sh@1.1.3") for a version the line
+ * above had just offered. Revalidating costs one conditional request.
  */
+export function selfUpdateArgs(tag = "latest") {
+  return ["install", "-g", "--ignore-scripts", "--prefer-online", `${PACKAGE_NAME}@${tag}`];
+}
+
 export function runSelfUpdate({ tag = "latest" } = {}) {
   return new Promise((resolve) => {
     // npm is a batch file on Windows, and Node (since the 2024 batch-file fix)
     // refuses to spawn one without a shell — so this failed on every Windows
     // machine. spawnPlan runs it through cmd.exe with its arguments escaped.
     const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-    const plan = spawnPlan(npm, ["install", "-g", "--ignore-scripts", `${PACKAGE_NAME}@${tag}`]);
+    const plan = spawnPlan(npm, selfUpdateArgs(tag));
     let child;
     try {
       child = spawn(plan.command, plan.args, {

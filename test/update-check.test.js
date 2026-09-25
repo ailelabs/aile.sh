@@ -22,7 +22,7 @@ import path from "node:path";
 import { AILE_DIR } from "../src/relay/paths.js";
 import { APP_VERSION } from "../src/config/version.js";
 import {
-  isNewer, updateCheckDisabled, pendingUpdate, refreshCache,
+  isNewer, updateCheckDisabled, pendingUpdate, refreshCache, selfUpdateArgs,
 } from "../src/config/update-check.js";
 
 const CACHE = path.join(AILE_DIR, "update-check.json");
@@ -75,6 +75,18 @@ afterEach(() => {
   process.env.AILE_NO_UPDATE_CHECK = "1";
   globalThis.fetch = realFetch;
   clearCache();
+});
+
+describe("selfUpdateArgs", () => {
+  // The version on offer came from a fresh registry read; npm's own metadata
+  // cache can predate a release by minutes, and without a revalidation the
+  // install of that exact version failed ETARGET on 1.1.3's release day.
+  it("installs the pinned version, revalidating npm's cache, with no scripts", () => {
+    expect(selfUpdateArgs("1.1.4")).toEqual(["install", "-g", "--ignore-scripts", "--prefer-online", "aile.sh@1.1.4"]);
+  });
+  it("falls back to latest", () => {
+    expect(selfUpdateArgs().at(-1)).toBe("aile.sh@latest");
+  });
 });
 
 describe("isNewer", () => {

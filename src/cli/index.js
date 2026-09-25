@@ -2912,7 +2912,7 @@ async function cmdUpdate(args) {
   }
   console.log(`\n${C.red}Update failed (npm exited ${code}).${C.reset}`);
   console.log(`${C.dim}Try manually, perhaps with elevated permissions:${C.reset}`);
-  console.log(`  ${C.cyan}npm install -g aile.sh@latest${C.reset}\n`);
+  console.log(`  ${C.cyan}npm install -g aile.sh@latest --prefer-online${C.reset}\n`);
   process.exit(1);
 }
 

@@ -10,6 +10,15 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-09-26
+
+### Fixed
+
+- `aile update` no longer fails with "No matching version found" in the minutes
+  after a release. It reads the newest version straight from the registry, but
+  npm installed from its own metadata cache, which could still predate that
+  release. The install now asks npm to check the registry first.
+
 ## [1.1.3] - 2026-09-26
 
 ### Changed
