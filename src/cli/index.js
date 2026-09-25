@@ -1506,8 +1506,11 @@ function printGlance(s) {
       : `${C.dim}no accounts connected${C.reset}`];
     const relay = relayWord(s);
     if (relay) parts.push(relay);
+    // Requests are counted per MACHINE (`me.nodes`); a nodeless serve passes
+    // through none, so for an all-nodeless account the count would read "0
+    // served" beside real earnings. Shown only where a machine can serve.
     const served = (me.nodes || []).reduce((a, x) => a + (x.requests || 0), 0);
-    if (n) parts.push(`${count(served)} served`);
+    if (n && s.nodeless < n) parts.push(`${count(served)} served`);
     rows.push(["Lending", parts.join(dot)]);
   }
 
@@ -3109,4 +3112,25 @@ try {
   if (process.env.AILE_DEBUG === "1") console.error(e);
   const [msg, hint] = explainError(e);
   die(msg, hint);
+}
+
+/**
+ * A FINISHED COMMAND LEAVES, rather than waiting for the event loop to drain.
+ *
+ * On Windows a console read that a prompt cancelled — the browser sign-in
+ * winning the race against "paste a token here" — can stay pending below Node,
+ * in the console itself, until somebody presses Enter. Nothing in JavaScript
+ * holds it (stdin is paused, not reading, and unref'd makes no difference), so
+ * a finished `aile setup` sat at an empty line looking hung.
+ *
+ * The output is flushed first: a terminal write is asynchronous on Windows and a
+ * pipe write is on POSIX, and exiting on top of either cuts the last lines off.
+ * `aile start` is the one command meant to keep running, and a running relay is
+ * what says so.
+ */
+if (!getRelayStatus().running) {
+  let pending = 2;
+  const leave = () => { if (--pending === 0) process.exit(process.exitCode ?? 0); };
+  process.stdout.write("", leave);
+  process.stderr.write("", leave);
 }

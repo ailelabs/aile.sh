@@ -40,7 +40,8 @@ import { fetchChatModels, curatedModels, defaultModel } from "../setup/models.js
 import { obtainKey, KeyError, describeKey, KEY_RE, cleanKey, checkKey } from "../setup/key.js";
 import { commitEdit } from "../setup/files.js";
 import { loadManifest, saveManifest, recordTool, MANIFEST_FILE } from "../setup/manifest.js";
-import { isInteractive, promptConfirm, promptMulti, promptSecret } from "./prompt.js";
+import { isInteractive, promptChoice, promptConfirm, promptMulti, promptSecret } from "./prompt.js";
+import { signIn, LoginError } from "../auth/login.js";
 import { C } from "./colors.js";
 import {
   die, heading, sym, ok as okLine, warn as warnLine, bad as badLine, hintText,
@@ -397,22 +398,61 @@ async function getKey({ args, config, server, insecure, ctx, interactive }) {
     if (!(e instanceof KeyError)) throw e;
     if (e.reason === "unsupported" || e.reason === "no-tty") {
       console.log(`\n  ${e.message}`);
-      console.log(`  Create a key at ${C.cyan}${keysUrl(ctx)}${C.reset}, then paste it here (or pass --key).`);
-      if (!isInteractive()) fail("No terminal to paste into.", `aile setup --key <key> …   or   echo $KEY | aile setup --key - …`);
-      for (let i = 0; i < 3; i++) {
-        const k = cleanKey(await promptSecret("  API key: "));
-        if (!k) break;
-        if (!KEY_RE.test(k)) { console.log("  That is not an aile key — it starts with sk-aile-."); continue; }
-        const v = await checkKey({ key: k, serverUrl: server, insecure });
-        if (!v.ok) { console.log(`  ${v.reason}`); continue; }
-        const { saveConfig } = await import("../relay/config.js");
-        saveConfig({ buyerKey: k });
-        return { key: k, note: "yours", info: { id: null, account: null, source: "given" } };
+      if (!isInteractive()) {
+        fail("No terminal to sign in or paste on.", `aile login, then aile setup …   or   aile setup --key <key> …   or   echo $KEY | aile setup --key - …`);
       }
-      fail("No key — nothing changed.");
+      /**
+       * A SERVER THAT CANNOT APPROVE A KEY FROM THE BROWSER still has the other
+       * two ways in, and pasting was the only one offered. Signing in first is
+       * usually the easier one: the browser does the work, and once this machine
+       * is signed in the key is made on the account with no further step.
+       *
+       * Its cost is said on the row, because it is real: a sign-in hands out a
+       * new account token, which signs out every other machine on the account.
+       * That is exactly what the browser key approval exists to avoid.
+       */
+      const pick = await promptChoice(`${C.bold}How would you like to get a key?${C.reset}`, [
+        { label: "Sign in with your browser", note: "the key is made on your account · your other machines sign out" },
+        { label: "Paste a key", note: `create one at ${keysUrl(ctx)}` },
+      ]);
+      if (pick === null) fail("No key — nothing changed.");
+      if (pick === 0) return signInForKey({ args, server, insecure, ctx });
+      return pasteKey({ server, insecure });
     }
     fail(e.message, e.hint);
   }
+}
+
+/** Sign this machine in, then make the key on that account — `aile login`, then step 3. */
+async function signInForKey({ args, server, insecure, ctx }) {
+  let result;
+  try {
+    result = await signIn({ serverUrl: server, insecure, token: null, mode: "auto" });
+  } catch (e) {
+    fail(`Sign-in failed: ${e.message}`, e instanceof LoginError && e.hint ? e.hint : "Run `aile login --paste` to sign in without a browser, then `aile setup` again.");
+  }
+  console.log(`\n${okLine(`Signed in as ${result.renter?.email || "your account"}`)}`);
+  try {
+    const got = await obtainKey({ args: { ...args, key: undefined }, config: loadConfig(), serverUrl: server, insecure, interactive: false });
+    return { key: got.key, note: "new, on your account", info: { id: got.id, account: got.account, source: got.source } };
+  } catch (e) {
+    if (!(e instanceof KeyError)) throw e;
+    fail(`Signed in, but no key could be made: ${e.message}`, `Create one at ${keysUrl(ctx)} and run \`aile setup --key <key>\`.`);
+  }
+}
+
+/** Up to three tries at a pasted key, each checked with the server before use. */
+async function pasteKey({ server, insecure }) {
+  for (let i = 0; i < 3; i++) {
+    const k = cleanKey(await promptSecret("  API key: "));
+    if (!k) break;
+    if (!KEY_RE.test(k)) { console.log("  That is not an aile key — it starts with sk-aile-."); continue; }
+    const v = await checkKey({ key: k, serverUrl: server, insecure });
+    if (!v.ok) { console.log(`  ${v.reason}`); continue; }
+    saveConfig({ buyerKey: k });
+    return { key: k, note: "yours", info: { id: null, account: null, source: "given" } };
+  }
+  fail("No key — nothing changed.");
 }
 
 function printManual(plans, ctx, { key, model, models }) {

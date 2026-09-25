@@ -362,6 +362,9 @@ describe("bare `aile` on a signed-in machine", () => {
       const glance = await run([], { data: lenderData(srv.url) });
       expect(glance.stdout).toMatch(/Lending\s+2 accounts \(nodeless\)/);
       expect(glance.stdout).not.toContain("aile start");
+      // Served is counted per machine, and a nodeless serve passes through none:
+      // "0 served" beside real earnings would be wrong, so it is left out.
+      expect(glance.stdout).not.toMatch(/served/);
       const status = await run(["status"], { data: lenderData(srv.url) });
       expect(status.stdout).toMatch(/Relay:\s+not running . not needed, your accounts are nodeless/);
       expect(status.stdout).not.toMatch(/^\s+aile start/m);
@@ -372,7 +375,7 @@ describe("bare `aile` on a signed-in machine", () => {
     const srv = accountServer({ accounts: [NODELESS(1), IDLE] });
     try {
       const res = await run([], { data: lenderData(srv.url) });
-      expect(res.stdout).toMatch(/Lending\s+2 accounts \(1 nodeless\)/);
+      expect(res.stdout).toMatch(/Lending\s+2 accounts \(1 nodeless\) . 1,216 served/);
       expect(res.stdout).toMatch(/aile start\s+serve your idle account from this machine/);
     } finally { srv.stop(); }
   });

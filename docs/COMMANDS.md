@@ -40,6 +40,11 @@ not, it opens your browser to approve one. Approving a key does not sign the
 machine in, and it does not log out your other machines. A key is saved and
 reused by later runs, `aile run` and `aile env`.
 
+If the server cannot approve a key from the browser, setup offers two other ways:
+sign in with your browser, after which the key is made on your account, or paste
+a key from the dashboard. Signing in works like `aile login`, so it signs out your
+other machines, and the option says so.
+
 **Shortcuts** go in the first writable directory already on your PATH:
 
 - macOS and Linux: `~/.local/bin`

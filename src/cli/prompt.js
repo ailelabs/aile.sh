@@ -250,6 +250,31 @@ export function promptSecret(question, {
  * — distinct from choosing item 0.
  */
 /**
+ * Hide the terminal's cursor while a menu waits for keys, and give it back on
+ * every way out.
+ *
+ * A menu takes arrows and digits, not text, so a blinking caret under it read as
+ * "type here" — and in a terminal that draws its cursor in an accent colour (Zed
+ * draws it blue) it looked like a stray indicator below the list. Only on a real
+ * terminal: a stream that is not one gets no escape codes it did not ask for. The
+ * `exit` hook covers Ctrl+C and anything else that leaves without restoring, so a
+ * hidden cursor is never left behind in somebody's shell.
+ */
+function hideCursorWhile(output) {
+  if (!output?.isTTY) return () => {};
+  const show = () => { try { output.write("\x1b[?25h"); } catch { /* stream gone */ } };
+  output.write("\x1b[?25l");
+  process.on("exit", show);
+  let shown = false;
+  return () => {
+    if (shown) return;
+    shown = true;
+    process.off("exit", show);
+    show();
+  };
+}
+
+/**
  * One menu row, never wider than the terminal.
  *
  * A row that wraps is two physical lines, and the redraw walks the cursor up by
@@ -354,11 +379,13 @@ export function promptChoice(title, choices, {
       painted = lines;
     }
 
+    let showCursor = () => {};
     function restore() {
       input.removeListener("data", onData);
       signal?.removeEventListener("abort", onAbort);
       try { input.setRawMode(wasRaw); } catch { /* stream already gone */ }
       input.pause();
+      showCursor();
     }
 
     function done(result) { restore(); resolve(result); }
@@ -368,6 +395,7 @@ export function promptChoice(title, choices, {
     signal?.addEventListener("abort", onAbort);
 
     if (title) output.write(`${title}\n`);
+    showCursor = hideCursorWhile(output);
     input.setRawMode(true);
     input.setEncoding("utf8");
     input.resume();
@@ -532,10 +560,12 @@ export function promptMulti(title, choices, { input = process.stdin, output = pr
       }
       painted = lines;
     }
+    let showCursor = () => {};
     function restore() {
       input.removeListener("data", onData);
       try { input.setRawMode(wasRaw); } catch { /* stream gone */ }
       input.pause();
+      showCursor();
     }
     function onData(chunk) {
       const s = String(chunk);
@@ -554,6 +584,7 @@ export function promptMulti(title, choices, { input = process.stdin, output = pr
       }
     }
     if (title) output.write(`${title}\n`);
+    showCursor = hideCursorWhile(output);
     input.setRawMode(true);
     input.setEncoding("utf8");
     input.resume();

@@ -240,3 +240,59 @@ describe("leaving a menu", () => {
     expect(await p).toBe(0);
   });
 });
+
+describe("the cursor under a menu", () => {
+  // A menu takes keys, not text, so the caret is hidden while it waits — Zed
+  // draws the cursor blue, and a blinking block under the list read as "type
+  // here". Whatever ends the menu must give the cursor back.
+  const HIDE = "\x1b[?25l";
+  const SHOW = "\x1b[?25h";
+  const tty = () => { const o = capture(); o.isTTY = true; return o; };
+  const hiddenThenShown = (w) => w.indexOf(HIDE) >= 0 && w.lastIndexOf(SHOW) > w.lastIndexOf(HIDE);
+
+  for (const [name, key, want] of [["enter", "\r", 0], ["esc", "\x1b", null], ["q", "q", null]]) {
+    it(`promptChoice hides it, and ${name} shows it again`, async () => {
+      const input = fakeTty(), output = tty();
+      const p = promptChoice("Pick:", ["a", "b"], { input, output });
+      await tick();
+      expect(output.written).toContain(HIDE);
+      expect(output.written).not.toContain(SHOW);
+      input.write(key);
+      expect(await p).toBe(want);
+      expect(hiddenThenShown(output.written)).toBe(true);
+    });
+  }
+
+  for (const [name, key] of [["enter", "\r"], ["esc", "\x1b"]]) {
+    it(`promptMulti hides it, and ${name} shows it again`, async () => {
+      const input = fakeTty(), output = tty();
+      const p = promptMulti("Which tools?", TOOLS, { input, output });
+      await tick();
+      expect(output.written).toContain(HIDE);
+      input.write(key);
+      await p;
+      expect(hiddenThenShown(output.written)).toBe(true);
+    });
+  }
+
+  it("writes no cursor codes to a stream that is not a terminal", async () => {
+    const input = fakeTty(), output = capture();
+    const p = promptChoice("Pick:", ["a", "b"], { input, output });
+    await tick();
+    input.write("\r");
+    await p;
+    expect(output.written).not.toContain(HIDE);
+    expect(output.written).not.toContain(SHOW);
+  });
+
+  it("leaves no exit hook behind once the menu is done", async () => {
+    const before = process.listenerCount("exit");
+    const input = fakeTty(), output = tty();
+    const p = promptChoice("Pick:", ["a", "b"], { input, output });
+    await tick();
+    expect(process.listenerCount("exit")).toBe(before + 1);
+    input.write("\r");
+    await p;
+    expect(process.listenerCount("exit")).toBe(before);
+  });
+});

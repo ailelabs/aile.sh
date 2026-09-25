@@ -10,6 +10,30 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-25
+
+### Added
+
+- When the server cannot approve a key from the browser, `aile setup` offers to
+  sign in with your browser, after which the key is made on your account, as well
+  as pasting a key. Signing in works like `aile login` and signs out your other
+  machines; the option says so.
+
+### Fixed
+
+- A command that finished after a cancelled prompt no longer sits at an empty
+  line on Windows. When the browser sign-in won the race against "paste a token
+  here", the console read that prompt cancelled could stay pending until somebody
+  pressed Enter. aile now exits once a command has finished, after flushing its
+  output; `aile start` keeps running as before.
+- Menus and the setup checklist hide the terminal cursor while they wait for
+  keys, and give it back however you leave them, Ctrl+C included. A blinking
+  cursor under a list read as "type here", and terminals that draw the cursor in
+  an accent colour (Zed draws it blue) showed it as a stray indicator.
+- Bare `aile` no longer shows "0 served" for an account whose every provider is
+  nodeless: requests are counted per machine, and a nodeless serve passes through
+  none, so the count sat at zero beside real earnings. It is left out there.
+
 ## [1.1.1] - 2026-09-25
 
 ### Changed
