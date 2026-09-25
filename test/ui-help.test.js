@@ -273,8 +273,8 @@ describe("bare `aile` on a machine that only buys", () => {
     expect(res.code).toBe(0);
     expect(res.all).not.toMatch(/How would you like to get started/);
     expect(res.all).not.toMatch(/spare capacity/i);
-    expect(res.stdout).toContain("Coding tools");
-    expect(res.stdout).toContain("aile login");
+    expect(res.stdout).toMatch(/Tools\s+not set up/);
+    expect(res.stdout).toContain("aile setup");
   });
 
   it("`aile status --json` is one parseable object with the key masked", async () => {
@@ -292,5 +292,99 @@ describe("bare `aile` on a machine that only buys", () => {
     const res = await run(["status"], { data: scratch({ serverUrl: "https://aile.test", buyerKey: KEY }) });
     const settings = res.stdout.split("\n").find((l) => l.includes("Settings:")) || "";
     expect(settings).not.toContain("buyerKey");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The glance on a signed-in machine: the balance, and no `aile start` where a
+// node would serve nothing.
+// ---------------------------------------------------------------------------
+
+/** A relay answering `/me` and `/wallet?balance=1`, enveloped as the real one is. */
+function accountServer({ accounts, wallet = null, walletStatus = 200 }) {
+  const me = {
+    renter: { id: "rnt_1", email: "lender@example.com", donor: false },
+    accounts,
+    nodes: [{ node_id: "some-other-box", requests: 1216 }],
+  };
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/me") return Response.json({ success: true, data: me, message: "" });
+      if (url.pathname === "/wallet" && wallet) {
+        return walletStatus === 200
+          ? Response.json({ success: true, data: { wallet }, message: "" })
+          : Response.json({ success: false, message: "down" }, { status: walletStatus });
+      }
+      return Response.json({ success: false, message: "not found" }, { status: 404 });
+    },
+  });
+  return { url: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+}
+
+const NODELESS = (n) => ({ id: `a${n}`, provider: "openrouter", label: `Key #${n}`, serving: { via: "nodeless", nodeId: null, online: false, nodeless: true } });
+const IDLE = { id: "a9", provider: "claude", label: "Claude #1", serving: { via: "none", nodeId: null, online: false, nodeless: false } };
+const lenderData = (url) => scratch({ serverUrl: url, allowInsecure: true, renterToken: `ail_${"a".repeat(48)}` });
+
+describe("bare `aile` on a signed-in machine", () => {
+  it("leads with the balance", async () => {
+    const srv = accountServer({ accounts: [NODELESS(1)], wallet: { address: "W", usdc: "12.34", spendable: "12.34", owedMicros: 0 } });
+    try {
+      const res = await run([], { data: lenderData(srv.url) });
+      expect(res.code).toBe(0);
+      expect(res.stdout).toMatch(/Balance\s+\$12\.34/);
+      expect(res.stdout).toContain("lender@example.com");
+    } finally { srv.stop(); }
+  });
+
+  it("names what is spendable only when something is owed", async () => {
+    const srv = accountServer({ accounts: [NODELESS(1)], wallet: { address: "W", usdc: "12.34", spendable: "12.10", owedMicros: 240_000 } });
+    try {
+      const res = await run([], { data: lenderData(srv.url) });
+      expect(res.stdout).toMatch(/\$12\.34 . \$12\.10 spendable/);
+    } finally { srv.stop(); }
+  });
+
+  it("says the balance could not be read, never $0.00, when the read fails", async () => {
+    const srv = accountServer({ accounts: [NODELESS(1)], wallet: { address: "W" }, walletStatus: 503 });
+    try {
+      const res = await run([], { data: lenderData(srv.url) });
+      expect(res.stdout).toMatch(/Balance\s+could not be read/);
+      expect(res.stdout).not.toContain("$0.00");
+    } finally { srv.stop(); }
+  });
+
+  it("does not send somebody whose every account is nodeless to `aile start`", async () => {
+    const srv = accountServer({ accounts: [NODELESS(1), NODELESS(2)] });
+    try {
+      const glance = await run([], { data: lenderData(srv.url) });
+      expect(glance.stdout).toMatch(/Lending\s+2 accounts \(nodeless\)/);
+      expect(glance.stdout).not.toContain("aile start");
+      const status = await run(["status"], { data: lenderData(srv.url) });
+      expect(status.stdout).toMatch(/Relay:\s+not running . not needed, your accounts are nodeless/);
+      expect(status.stdout).not.toMatch(/^\s+aile start/m);
+    } finally { srv.stop(); }
+  });
+
+  it("does suggest `aile start` for an account only a node can serve", async () => {
+    const srv = accountServer({ accounts: [NODELESS(1), IDLE] });
+    try {
+      const res = await run([], { data: lenderData(srv.url) });
+      expect(res.stdout).toMatch(/Lending\s+2 accounts \(1 nodeless\)/);
+      expect(res.stdout).toMatch(/aile start\s+serve your idle account from this machine/);
+    } finally { srv.stop(); }
+  });
+
+  it("keeps the glance short: the detail is `aile status`", async () => {
+    const srv = accountServer({ accounts: [NODELESS(1), IDLE], wallet: { address: "W", usdc: "1.00", owedMicros: 0 } });
+    try {
+      const res = await run([], { data: lenderData(srv.url) });
+      const lines = res.stdout.split("\n").filter((l) => l.trim());
+      expect(lines.length).toBeLessThanOrEqual(9);
+      expect(res.stdout).not.toContain("Machine:");
+      expect(res.stdout).not.toContain("config.json");
+    } finally { srv.stop(); }
   });
 });

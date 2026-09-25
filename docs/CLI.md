@@ -33,9 +33,10 @@ aile start      # run as a relay node
 
 Bare `aile` on a machine where nothing is set up yet starts a short first-run
 prompt. Once anything is set up (a sign-in, an API key, or a coding tool), it
-shows the `aile status` overview and, in a terminal, a menu of likely next
-steps: arrows or a number, then enter; Esc or `q` quits. Off a terminal it prints
-the overview and exits, so a script never waits on it.
+shows a few lines: your balance, your coding tools, and what you lend. Then, in a
+terminal, a menu of likely next steps: arrows or a number, then enter; Esc or `q`
+quits. Off a terminal it prints the summary and exits, so a script never waits on
+it. `aile status` has the detail.
 
 ## How arguments are parsed
 

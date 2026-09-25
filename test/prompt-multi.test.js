@@ -67,6 +67,44 @@ describe("promptMulti", () => {
     expect(await p2).toEqual([]);
   });
 
+  it("`a` ticks every item but leaves an option row as it was", async () => {
+    const input = fakeTty(), output = capture();
+    const rows = [...TOOLS, { label: "Also make aile the default", option: true }];
+    const p = promptMulti("Which tools?", rows, { input, output });
+    await tick();
+    input.write("a");
+    await tick();
+    input.write("\r");
+    expect(await p).toEqual([0, 1, 2]);
+  });
+
+  it("an option row's long label does not push the items' notes to the edge", async () => {
+    const input = fakeTty(), output = capture();
+    output.columns = 200;
+    const rows = [
+      { label: "Codex", note: "adds codexaile" },
+      { label: "Also make aile the default in Claude Code and Codex", note: "edits their settings", option: true },
+    ];
+    const p = promptMulti("Which tools?", rows, { input, output });
+    await tick();
+    input.write("\r");
+    await p;
+    const first = output.written.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").split("\n").find((l) => l.includes("Codex"));
+    expect(first.indexOf("adds codexaile")).toBeLessThan(20);
+  });
+
+  it("draws the footer under the list, fitted to the window", async () => {
+    const input = fakeTty(), output = capture();
+    output.columns = 30;
+    const p = promptMulti("Which tools?", TOOLS, { input, output, footer: "not listed: aile setup <tool> and a long tail" });
+    await tick();
+    input.write("\r");
+    await p;
+    const plain = output.written.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+    expect(plain).toContain("not listed:");
+    for (const l of plain.split("\n")) expect(l.length).toBeLessThanOrEqual(29);
+  });
+
   it("Esc abandons the list: null, which every caller reads as cancelled", async () => {
     const input = fakeTty(), output = capture();
     const p = promptMulti("Which tools?", TOOLS, { input, output });

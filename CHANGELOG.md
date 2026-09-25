@@ -10,6 +10,25 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-25
+
+### Changed
+
+- Bare `aile` is a few lines: your balance, your coding tools and what you lend,
+  then the menu. `aile status` keeps the detail, one fact per line, without
+  section headings or the sentences that explained each number.
+- `aile setup` is one screen. It lists the tools installed here, each with what
+  setup will do to it, plus one row to also make aile the default in Claude Code
+  and Codex. The separate "How should Claude Code and Codex use aile?" question is
+  gone; `--mode` still sets it without asking. Tools that are not installed are
+  one command away (`aile setup <tool>`) instead of fifteen "not found" rows.
+- `aile status --json` includes `balance`.
+
+### Fixed
+
+- `aile start` is no longer suggested when every connected account is nodeless:
+  those are served without this machine.
+
 ## [1.1.0] - 2026-09-25
 
 ### Added

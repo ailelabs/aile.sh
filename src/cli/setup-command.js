@@ -40,7 +40,7 @@ import { fetchChatModels, curatedModels, defaultModel } from "../setup/models.js
 import { obtainKey, KeyError, describeKey, KEY_RE, cleanKey, checkKey } from "../setup/key.js";
 import { commitEdit } from "../setup/files.js";
 import { loadManifest, saveManifest, recordTool, MANIFEST_FILE } from "../setup/manifest.js";
-import { isInteractive, promptChoice, promptConfirm, promptMulti, promptSecret } from "./prompt.js";
+import { isInteractive, promptConfirm, promptMulti, promptSecret } from "./prompt.js";
 import { C } from "./colors.js";
 import {
   die, heading, sym, ok as okLine, warn as warnLine, bad as badLine, hintText,
@@ -98,6 +98,11 @@ export async function setupCommand(args) {
     console.log(`\n${heading("aile setup", "use aile from your coding tools")}\n`);
   }
 
+  let mode = args.mode ? String(args.mode) : null;
+  if (mode && !["shortcut", "default", "both"].includes(mode)) {
+    fail(`--mode must be shortcut, default or both (got "${mode}").`);
+  }
+
   // --- which tools -----------------------------------------------------------
   const found = new Map(TOOLS.map((t) => [t.id, t.detect(ctx)]));
   // Run from inside a coding agent? Then that tool is the likely target, and a
@@ -115,19 +120,51 @@ export async function setupCommand(args) {
     chosen = TOOLS.filter((t) => !printsOnly(t) && isInstalled(found.get(t.id)));
     if (!chosen.length) fail("None of the tools aile sets up is installed here.", `Install one (for example: ${INSTALL.claude}), or name a tool: aile setup claude`);
   } else if (interactive) {
+    /**
+     * ONE SCREEN, ONE ANSWER. The tools installed here, ticked, each with what
+     * setup will do to it; and for Claude Code and Codex, whether aile also
+     * becomes their default — one more row here rather than a second question
+     * after this one. Tools that are not installed are not rows: a list of
+     * fifteen "not found" lines hid the three that mattered. They stay one
+     * command away (`aile setup <name>`), and `aile detect` lists them all.
+     */
+    const here = (t) => isInstalled(found.get(t.id)) || invoker?.id === t.id;
     const auto = TOOLS.filter((t) => !printsOnly(t));
-    // Unsupported tools are left out of the menu: there is nothing to pick them
-    // FOR. `aile detect` lists them, with the reason.
+    // Unsupported tools are left out: there is nothing to pick them FOR.
     const manual = TOOLS.filter((t) => t.kinds.includes("manual"));
-    const list = [...auto, ...manual];
-    const headings = { 0: "Set up", [auto.length]: "Show the steps for" };
-    const idx = await promptMulti(`${C.bold}Which tools?${C.reset}`, list.map((t) => ({
+    let setupRows = auto.filter(here);
+    let stepRows = manual.filter(here);
+    // Nothing installed at all: offer every tool rather than an empty list.
+    const offerAll = !setupRows.length && !stepRows.length;
+    if (offerAll) setupRows = auto;
+    const list = [...setupRows, ...stepRows];
+    const rows = list.map((t) => ({
       label: t.label,
-      note: noteFor(t, found.get(t.id)),
-      checked: isInstalled(found.get(t.id)) || invoker?.id === t.id,
-    })), { headings });
+      note: doesNote(t, found.get(t.id), { showMissing: offerAll }),
+      checked: here(t),
+    }));
+    const headings = {};
+    if (setupRows.length) headings[0] = "Set up";
+    if (stepRows.length) headings[setupRows.length] = "Show the steps for";
+    const defaultable = setupRows.filter((t) => t.changesDefault);
+    let optionAt = -1;
+    if (defaultable.length && !mode) {
+      optionAt = rows.length;
+      headings[optionAt] = "Option";
+      rows.push({
+        label: `Also make aile the default in ${defaultable.map((t) => t.label).join(" and ")}`,
+        note: "otherwise only the shortcuts use it",
+        checked: false,
+        option: true,
+      });
+    }
+    const idx = await promptMulti(`${C.bold}Which tools?${C.reset}`, rows, {
+      headings,
+      footer: offerAll ? null : `not listed: aile setup <tool> ${sym.dot} aile detect lists every tool`,
+    });
     if (idx === null) { console.log("\n  Cancelled — nothing changed.\n"); return; }
-    chosen = idx.map((i) => list[i]);
+    chosen = idx.filter((i) => i !== optionAt).map((i) => list[i]);
+    if (optionAt >= 0) mode = idx.includes(optionAt) ? "both" : "shortcut";
   } else {
     fail(
       "Name the tools to set up, or pass --all.",
@@ -139,22 +176,8 @@ export async function setupCommand(args) {
   if (!chosen.length) { console.log("  Nothing chosen — nothing changed.\n"); return; }
 
   // --- how: shortcut, default, or both (Claude Code and Codex only) -----------
-  let mode = args.mode ? String(args.mode) : null;
-  if (mode && !["shortcut", "default", "both"].includes(mode)) {
-    fail(`--mode must be shortcut, default or both (got "${mode}").`);
-  }
-  const defaultable = chosen.filter((t) => t.changesDefault);
-  if (!mode && defaultable.length && interactive) {
-    const names = defaultable.map((t) => t.label).join(" and ");
-    const shortcuts = defaultable.map((t) => shortcutName(t.id)).join(", ");
-    const pick = await promptChoice(`\n${C.bold}How should ${names} use aile?${C.reset}`, [
-      { label: "Shortcuts only", note: `${shortcuts} — your usual commands stay as they are (recommended)` },
-      { label: "Make aile the default", note: `edits ${defaultable.map((t) => tidy(ctx, t.files(ctx)[0])).join(", ")}` },
-      { label: "Both" },
-    ]);
-    if (pick === null) { console.log("\n  Cancelled — nothing changed.\n"); return; }
-    mode = ["shortcut", "default", "both"][pick];
-  }
+  // Decided above: by --mode, or by the checklist's option row. Shortcuts alone
+  // are the default, because they leave the tools' own commands untouched.
   mode = mode || "shortcut";
 
   const customName = args["shortcut-name"] ? String(args["shortcut-name"]) : null;
@@ -314,12 +337,15 @@ export function foundNote(d) {
   return "found";
 }
 
-function noteFor(t, d) {
-  const where = foundNote(d);
-  if (t.kinds.includes("unsupported")) return `${where} · not supported`;
-  if (t.kinds.includes("manual")) return `${where} · prints the values to paste`;
-  if (t.kinds.includes("shortcut") && !t.kinds.includes("config")) return `${where} · adds ${shortcutName(t.id)}`;
-  return where;
+/** What setup will do to a tool, in a few words — the note on its row. */
+function doesNote(t, d, { showMissing = false } = {}) {
+  const does = t.kinds.includes("shortcut") ? `adds ${shortcutName(t.id)}`
+    : t.id === "opencode" ? "adds aile's plugin"
+    : t.kinds.includes("config") ? "adds aile as a provider"
+    : d?.via === "extension" ? foundNote(d)
+    : "";
+  const missing = showMissing && !isInstalled(d) ? "not found" : "";
+  return [does, missing].filter(Boolean).join(` ${sym.dot} `);
 }
 
 function maskKey(text, key) {

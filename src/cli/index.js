@@ -32,7 +32,7 @@ import { makeCtx, webOrigin } from "../setup/ctx.js";
 import { TOOLS, getTool, printsOnly } from "../setup/tools.js";
 import { describeKey } from "../setup/key.js";
 import { SCHEMA } from "../config/settings.js";
-import { sym, heading, next, withSpinner, width, padTo, die as uiDie } from "./ui.js";
+import { sym, heading, next, kv, withSpinner, width, padTo, die as uiDie } from "./ui.js";
 import { overview, commandHelp, findCommand, unknownCommand } from "./help.js";
 import { mcpStatus } from "../mcp/capabilities.js";
 import { getNodeId, getNodeInfo } from "../relay/identity.js";
@@ -1379,7 +1379,13 @@ function dashboardUrl(serverUrl) {
  * IT ENDS WITH WHAT TO DO NEXT, chosen from the state it just read. A status
  * that lists facts and stops leaves the reader to work out which fact matters.
  */
-async function cmdStatus(args, { home = false } = {}) {
+/**
+ * Everything the two status views show, read once. The account and the balance
+ * are asked for TOGETHER, under one spinner: they are independent calls, and
+ * waiting for one before starting the other doubled the pause before the first
+ * line appeared.
+ */
+async function readStatus() {
   const config = loadConfig();
   const info = getNodeInfo();
   const server = config.serverUrl;
@@ -1389,12 +1395,23 @@ async function cmdStatus(args, { home = false } = {}) {
 
   let me = null;
   let meError = null;
+  // `wallet`: the wallet view, or null when there is none (a donor, or a 404).
+  // `walletError`: the read itself failed, which is not the same as no wallet.
+  let wallet = null;
+  let walletError = false;
   if (isLinked()) {
     const insecure = !isSecureUrl(server) && config.allowInsecure === true;
-    try {
-      me = await withSpinner("Checking your account…", () => api.me({ serverUrl: server, token: config.renterToken, insecure }));
-    } catch (e) {
-      meError = e;
+    const opts = { serverUrl: server, token: config.renterToken, insecure };
+    const [m, w] = await withSpinner("Checking your account…", () => Promise.allSettled([
+      api.me(opts),
+      api.wallet({ ...opts, balance: true }),
+    ]));
+    if (m.status === "fulfilled") me = m.value; else meError = m.reason;
+    if (w.status === "fulfilled") {
+      const v = w.value?.wallet;
+      wallet = v && typeof v === "object" ? v : null;
+    } else {
+      walletError = true;
     }
   }
   const st = getRelayStatus();
@@ -1404,6 +1421,113 @@ async function cmdStatus(args, { home = false } = {}) {
   const changed = Object.keys(storedOverrides()).filter((k) => !SCHEMA[k]?.protected);
   // Installed tools not yet set up — local checks only, nothing is run.
   const notYet = TOOLS.filter((t) => !printsOnly(t) && !setUp.some((u) => u.id === t.id) && isInstalled(t.detect(ctx)));
+
+  // How the connected accounts are carried. A NODELESS account is served by
+  // aile directly and needs no machine at all; only an IDLE one — no node up
+  // and not nodeless — is waiting on `aile start`. Suggesting `aile start` to
+  // somebody whose every account is nodeless sent them to run a node that
+  // would have served nothing.
+  const accounts = me?.accounts || [];
+  const nodeless = accounts.filter((a) => servingOf(a).via === "nodeless").length;
+  const idle = accounts.filter((a) => servingOf(a).via === "none").length;
+  const running = Boolean(st.running || holder);
+
+  return { config, info, server, manifest, setUp, me, meError, wallet, walletError, st, holder, mcp, changed, notYet, accounts, nodeless, idle, running };
+}
+
+/** What to do next, in order of what unblocks the most. */
+function statusSteps(s, { home }) {
+  const steps = [];
+  const { config, setUp, notYet, manifest, me } = s;
+  if (!setUp.length) steps.push(["aile setup", "use aile in your coding tools"]);
+  else if (notYet.length) steps.push([`aile setup ${notYet.map((t) => t.id).join(" ")}`, `also set up ${notYet.map((t) => t.label).join(", ")}`]);
+  const shortcut = setUp.map((t) => manifest.tools[t.id]?.shortcut?.name).find(Boolean);
+  if (shortcut && steps.length === 0) steps.push([shortcut, "start coding through aile"]);
+  if (me && !me.renter.donor && !s.accounts.length) steps.push(["aile connect", "connect an AI account to lend"]);
+  else if (me && s.idle && !s.running) steps.push(["aile start", `serve ${s.idle === 1 ? "your idle account" : `${s.idle} idle accounts`} from this machine`]);
+  if (!isLinked() && !steps.length) steps.push(["aile login", "sign in to lend and get paid"]);
+  if (!home) steps.push(["aile help", "every command"]);
+  return steps.slice(0, 3);
+}
+
+/** `$12.34`, then what is spoken for or on its way — each only when non-zero. */
+function balanceText(w) {
+  if (w.usdc === null || w.usdc === undefined) return `${C.dim}could not be read just now${C.reset}`;
+  const parts = [`${C.green}$${w.usdc}${C.reset}`];
+  if (Number(w.owedMicros || 0) > 0 && w.spendable !== null && w.spendable !== undefined) parts.push(`$${w.spendable} spendable`);
+  if (Number(w.incomingMicros || 0) > 0 && w.incoming) parts.push(`$${w.incoming} incoming`);
+  return parts.join(`${C.dim} ${sym.dot} ${C.reset}`);
+}
+
+/** The relay in a word or two, or null when there is nothing running to report. */
+function relayWord(s) {
+  if (s.st.running) {
+    return s.st.connected ? `${C.green}serving here${C.reset}`
+      : s.st.fatal ? `${C.red}refused${C.reset}`
+      : `${C.yellow}reconnecting${C.reset}`;
+  }
+  if (s.holder) return `${C.green}serving${C.reset}${C.dim} (another terminal)${C.reset}`;
+  return null;
+}
+
+/**
+ * Bare `aile`: the few lines worth reading every time, then the menu. Anything
+ * a person reads once — the machine id, the config path, each account's row —
+ * is `aile status`.
+ */
+function printGlance(s) {
+  const { config, me, meError, wallet, walletError, setUp, notYet, server } = s;
+  const dot = `${C.dim} ${sym.dot} ${C.reset}`;
+  const who = me
+    ? (me.renter.donor ? "contributing, unpaid" : (me.renter.email || "signed in"))
+    : (isLinked() ? "signed in" : "not signed in");
+  console.log(`\n${heading(`aile.sh ${APP_VERSION}`, who)}\n`);
+
+  const rows = [];
+  if (wallet) rows.push(["Balance", balanceText(wallet)]);
+  else if (me && walletError) rows.push(["Balance", `${C.dim}could not be read just now${C.reset}`]);
+  else if (!isLinked() && config.buyerKey) rows.push(["Balance", `${C.dim}see${C.reset} ${C.cyan}${dashboardUrl(server)}${C.reset}`]);
+
+  const done = setUp.map((t) => getTool(t.id)?.label || t.id);
+  const found = notYet.map((t) => t.label);
+  rows.push(["Tools", done.length
+    ? [done.join(", "), found.length ? `${C.dim}also found ${found.join(", ")}${C.reset}` : null,
+      config.buyerKey ? null : `${C.yellow}no key${C.reset}`].filter(Boolean).join(dot)
+    : [`${C.dim}not set up${C.reset}`, found.length ? `found ${found.join(", ")}` : null].filter(Boolean).join(dot)]);
+
+  if (!isLinked()) {
+    rows.push(["Lending", `${C.dim}not signed in${C.reset}`]);
+  } else if (!me) {
+    rows.push(["Lending", `${C.yellow}${explainError(meError, server)[0]}${C.reset}`]);
+  } else {
+    const n = s.accounts.length;
+    const parts = [n
+      ? `${n} account${n === 1 ? "" : "s"}${s.nodeless === n ? " (nodeless)" : s.nodeless ? ` (${s.nodeless} nodeless)` : ""}`
+      : `${C.dim}no accounts connected${C.reset}`];
+    const relay = relayWord(s);
+    if (relay) parts.push(relay);
+    const served = (me.nodes || []).reduce((a, x) => a + (x.requests || 0), 0);
+    if (n) parts.push(`${count(served)} served`);
+    rows.push(["Lending", parts.join(dot)]);
+  }
+
+  const local = [];
+  if (config.localEnabled && config.localEndpoint) local.push(String(config.localEndpoint).replace(/^https?:\/\//, ""));
+  if (s.mcp.configError) local.push(`${C.red}MCP config error${C.reset}`);
+  else if (s.mcp.declared.length) {
+    local.push(`MCP ${s.mcp.declared.map((d) => d.id).join(", ")}${s.mcp.advertising ? "" : `${C.yellow} (not served)${C.reset}`}`);
+  }
+  if (local.length) rows.push(["Local", local.join(dot)]);
+
+  console.log(kv(rows));
+  const block = next(statusSteps(s, { home: true }));
+  if (block) console.log(`\n${block}`);
+  console.log();
+}
+
+async function cmdStatus(args, { home = false } = {}) {
+  const s = await readStatus();
+  const { config, info, server, manifest, setUp, me, meError, wallet, walletError, st, holder, mcp, changed, notYet } = s;
 
   if (args.json) {
     console.log(JSON.stringify({
@@ -1415,6 +1539,12 @@ async function cmdStatus(args, { home = false } = {}) {
       accountError: meError ? meError.message : null,
       accounts: me ? me.accounts.length : null,
       served: me ? (me.nodes || []).reduce((a, n) => a + (n.requests || 0), 0) : null,
+      balance: wallet ? {
+        usdc: wallet.usdc ?? null,
+        spendable: wallet.spendable ?? null,
+        owedMicros: Number(wallet.owedMicros || 0),
+        incoming: wallet.incoming ?? null,
+      } : null,
       relay: st.running
         ? { running: true, connected: Boolean(st.connected), fatal: st.fatal || null, here: true }
         : holder ? { running: true, here: false, pid: holder.pid } : { running: false },
@@ -1426,182 +1556,136 @@ async function cmdStatus(args, { home = false } = {}) {
     return;
   }
 
-  banner();
+  if (home) return printGlance(s);
 
-  // --- This machine -----------------------------------------------------------
-  console.log(`\n${heading("This machine")}`);
-  console.log(`  Machine:   ${C.cyan}${info.nodeId}${C.reset} ${C.dim}(${info.platform}/${info.arch})${C.reset}`);
-  console.log(`  Server:    ${server}`);
-  console.log(`  Config:    ${C.dim}${CONFIG_FILE}${C.reset}`);
+  // --- `aile status`: the detail, one fact per line -----------------------------
+  const dot = `${C.dim} ${sym.dot} ${C.reset}`;
+  const line = (label, value) => console.log(`  ${padTo(label, 10)} ${value}`);
+  const more = (value) => console.log(`             ${value}`);
+  console.log(`\n${heading(`aile.sh ${APP_VERSION}`)}\n`);
+
+  line("Machine:", `${C.cyan}${info.nodeId}${C.reset}${dot}${info.platform}/${info.arch}`);
+  line("Server:", server);
   if (changed.length) {
-    console.log(`  Settings:  ${C.yellow}${changed.length} changed${C.reset} ${C.dim}${changed.join(", ")}${C.reset}`);
-    if (config.allowInsecure === true) {
-      console.log(`             ${C.yellow}allowInsecure is on${C.reset} ${C.dim}— plain HTTP is permitted${C.reset}`);
-    }
+    line("Settings:", `${C.yellow}${changed.length} changed${C.reset} ${C.dim}${changed.join(", ")}${C.reset}`
+      + (config.allowInsecure === true ? `${dot}${C.yellow}plain HTTP allowed${C.reset}` : ""));
   }
 
-  // --- Coding tools -----------------------------------------------------------
-  console.log(`\n${heading("Coding tools")}`);
-  if (config.buyerKey) {
-    const owner = manifest.key?.account?.email;
-    console.log(`  Key:       ${describeKey(config.buyerKey)}${owner ? ` ${C.dim}· ${owner}${C.reset}` : ""}`);
-  } else {
-    console.log(`  Key:       ${C.dim}none yet${C.reset}`);
-  }
-  if (setUp.length) {
-    const rows = setUp.map((t) => {
-      const rec = manifest.tools[t.id];
-      const how = [rec?.shortcut?.name, t.mode !== "shortcut" ? "default" : null].filter(Boolean).join(", ");
-      return `${getTool(t.id)?.label || t.id}${how ? ` ${C.dim}(${how})${C.reset}` : ""}`;
+  const owner = manifest.key?.account?.email;
+  line("Key:", config.buyerKey ? `${describeKey(config.buyerKey)}${owner ? `${dot}${C.dim}${owner}${C.reset}` : ""}` : `${C.dim}none${C.reset}`);
+  if (setUp.length || notYet.length) {
+    const done = setUp.map((t) => {
+      const name = manifest.tools[t.id]?.shortcut?.name;
+      return `${getTool(t.id)?.label || t.id}${name ? ` ${C.dim}(${name})${C.reset}` : ""}`;
     });
-    console.log(`  Set up:    ${rows.join(`${C.dim},${C.reset} `)}`);
-  }
-  if (notYet.length) {
-    console.log(`  Found:     ${notYet.map((t) => t.label).join(", ")} ${C.dim}— not set up yet${C.reset}`);
+    const found = notYet.map((t) => t.label);
+    line("Tools:", [done.join(", ") || null, found.length ? `${C.dim}found, not set up: ${C.reset}${found.join(", ")}` : null].filter(Boolean).join(dot));
   }
 
-  // --- Lending ----------------------------------------------------------------
-  console.log(`\n${heading("Lending")}`);
-  // "Signed in" is answered from the token, before the server is asked, so a
-  // donor machine says NO here and is corrected two lines down. That order is
-  // deliberate: the local answer is always available and never wrong about what
-  // it claims, and a donor genuinely is not signed in to anything.
-  console.log(`  Signed in: ${isLinked() ? `${C.green}YES${C.reset}` : `${C.dim}no — ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to lend and get paid${C.reset}`}`);
-
-  if (me) {
+  // --- the account ------------------------------------------------------------
+  if (!isLinked()) {
+    line("Account:", `${C.dim}not signed in${C.reset}`);
+  } else if (!me) {
+    const [why] = explainError(meError, server);
+    line("Account:", `${C.yellow}${why}${C.reset}`);
+  } else {
     // A donor row has no email and its id is not an account anyone can reach,
-    // so printing the id under "Account" would be a meaningless hex string
-    // where a person expects to recognise themselves.
-    if (me.renter.donor) {
-      console.log(`  Account:   ${C.yellow}contributing${C.reset} ${C.dim}· not paid, nothing accrues${C.reset}`);
-      console.log(`             ${C.dim}Run ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to be paid for this machine instead.${C.reset}`);
-    } else {
-      console.log(`  Account:   ${me.renter.email || me.renter.id}`);
-    }
-    console.log(`  Accounts:  ${me.accounts.length} connected`);
+    // so printing the id here would be a meaningless hex string where a person
+    // expects to recognise themselves.
+    line("Account:", me.renter.donor
+      ? `${C.yellow}contributing${C.reset}${dot}${C.dim}not paid, nothing accrues${C.reset}`
+      : (me.renter.email || me.renter.id));
+    if (wallet) line("Balance:", balanceText(wallet));
+    else if (walletError) line("Balance:", `${C.dim}could not be read just now${C.reset}`);
+
+    line("Accounts:", `${me.accounts.length} connected`);
     const hereId = info.nodeId;
     for (const a of me.accounts.slice(0, 8)) {
-      // The SAME renderer `aile accounts` uses. This line used to run its own
-      // `attested ? … : …` rule, so the two commands disagreed about the same
-      // account — the whole reason the verdict now comes from the server.
+      // The SAME renderer `aile accounts` uses, so the two commands cannot
+      // disagree about one account.
       const badge = accountBadge(a).trimEnd();
       const name = getProvider(a.provider)?.name || a.provider;
-      // Label first, then email. With several accounts of one provider the
-      // repeated provider name carries no information — the thing that tells
-      // them apart is the only part worth the width.
+      // Label first, then email: with several accounts of one provider, the
+      // repeated provider name tells them apart least.
       const detail = a.label || a.email;
-      // A COMPACT served marker, so status answers "which of these is this box
-      // actually serving?" — the question the user typed it to settle. Full
-      // wording is one line down in `aile accounts`.
-      const s = servingOf(a);
-      const served = s.via === "node"
-        ? (s.nodeId && s.nodeId === hereId
+      // Which path carries it, so status answers "is THIS box doing the work?"
+      const v = servingOf(a);
+      const served = v.via === "node"
+        ? (v.nodeId && v.nodeId === hereId
             ? `${C.green}${sym.live} this node${C.reset}`
             : `${C.green}${sym.live} another node${C.reset}`)
-        : s.via === "nodeless"
+        : v.via === "nodeless"
           ? `${C.cyan}nodeless${C.reset}`
           : `${C.dim}no node${C.reset}`;
       console.log(`    ${C.dim}${sym.dot}${C.reset} ${name} ${badge}${detail ? ` ${C.dim}${detail}${C.reset}` : ""}  ${served}`);
     }
-    if (me.accounts.length > 8) {
-      console.log(`    ${C.dim}… and ${me.accounts.length - 8} more · aile accounts${C.reset}`);
-    }
-    // Status lists accounts flat, which cannot show that some are metered
-    // keys and some are capped subscriptions. Point at the view that can,
-    // rather than growing a second grouped listing here.
-    if (me.accounts.some((a) => isApiKeyProvider(a.provider))) {
-      console.log(`    ${C.dim}mixed kinds · ${C.reset}${C.cyan}aile capacity${C.reset}${C.dim} splits them${C.reset}`);
-    }
+    if (me.accounts.length > 8) console.log(`    ${C.dim}… and ${me.accounts.length - 8} more ${sym.dot} aile accounts${C.reset}`);
 
-    /**
-     * WHAT THIS ACCOUNT HAS ACTUALLY SERVED, in one line — across every
-     * machine, not just this one, because "the account is earning" and "THIS
-     * box is earning" are different numbers. The split is `aile stats`.
-     */
+    // Across every machine, not just this one: "the account is earning" and
+    // "THIS box is earning" are different numbers. The split is `aile stats`.
     const nodes = me.nodes || [];
     if (nodes.length) {
       const total = nodes.reduce((a, n) => a + (n.requests || 0), 0);
-      const here = nodes.find((n) => n.node_id === info.nodeId);
-      const mine = here?.requests || 0;
-      console.log(`  Served:    ${C.bold}${count(total)}${C.reset} request${total === 1 ? "" : "s"} across ${nodes.length} machine${nodes.length === 1 ? "" : "s"}`
-        + `${nodes.length > 1 ? ` ${C.dim}· ${count(mine)} on this one${C.reset}` : ""}`);
-      if (total === 0) {
-        console.log(`             ${C.dim}Nothing yet — a connected machine earns only once requests reach it.${C.reset}`);
-      } else if (nodes.length > 1) {
-        console.log(`             ${C.dim}Per machine: ${C.reset}${C.cyan}aile stats${C.reset}`);
-      }
+      const mine = nodes.find((n) => n.node_id === info.nodeId)?.requests || 0;
+      line("Served:", `${C.bold}${count(total)}${C.reset} request${total === 1 ? "" : "s"} across ${nodes.length} machine${nodes.length === 1 ? "" : "s"}`
+        + (nodes.length > 1 ? `${dot}${C.dim}${count(mine)} on this one${dot}${C.reset}${C.cyan}aile stats${C.reset}` : ""));
     }
-  } else if (meError) {
-    const [why] = explainError(meError, server);
-    console.log(`  Account:   ${C.yellow}${why}${C.reset}`);
   }
 
+  // --- what this machine serves itself ------------------------------------------
   if (config.localEnabled && config.localEndpoint) {
-    console.log(`  Local AI:  ${C.cyan}${config.localEndpoint}${C.reset} ${C.yellow}not blind${C.reset}`);
+    line("Local AI:", `${C.cyan}${config.localEndpoint}${C.reset}${dot}${C.yellow}not blind${C.reset}`);
   }
-
-  // MCP capacity, and — when there is none — WHY. Silence would read as "aile
-  // ignored my file" to a lender who declared a server and stopped Docker.
+  // MCP, and — when none is served — WHY. Silence would read as "aile ignored
+  // my file" to a lender who declared a server and stopped Docker.
   if (mcp.configError) {
-    console.log(`  MCP:       ${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`);
+    line("MCP:", `${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`);
   } else if (mcp.declared.length) {
-    const enforced = mcp.declared.every((d) => d.egressEnforced);
-    console.log(`  MCP:       ${mcp.advertising
+    const ids = mcp.declared.map((d) => d.id).join(", ");
+    line("MCP:", (mcp.advertising
       ? `${C.green}${mcp.advertising} server${mcp.advertising === 1 ? "" : "s"}${C.reset}`
-      : `${C.yellow}0 of ${mcp.declared.length} served${C.reset}`} `
-      + `${C.dim}${mcp.declared.map((d) => d.id).join(", ")}${C.reset} ${C.yellow}not blind${C.reset}`);
-    if (!mcp.advertising) {
-      console.log(`             ${C.dim}${mcp.runtime.message}${C.reset}`);
-    } else if (!enforced) {
-      console.log(`             ${C.dim}some declare network hosts — advertised, not packet-enforced${C.reset}`);
-    }
+      : `${C.yellow}0 of ${mcp.declared.length} served${C.reset}`)
+      + ` ${C.dim}${ids}${C.reset}${dot}${C.yellow}not blind${C.reset}`);
+    if (!mcp.advertising) more(`${C.dim}${mcp.runtime.message}${C.reset}`);
+    else if (!mcp.declared.every((d) => d.egressEnforced)) more(`${C.dim}some declare network hosts: advertised, not packet-enforced${C.reset}`);
   }
 
   /**
-   * Is this machine actually serving? Two sources, because `getRelayStatus`
-   * only knows about an agent in THIS process — and `aile status` is almost
-   * always typed into a second terminal. An agent held by another process is
-   * reported from the lock file it holds, with less detail, rather than as
-   * "not running" beside an `aile start` that refuses because it IS running.
+   * Is this machine serving? Two sources, because `getRelayStatus` only knows an
+   * agent in THIS process — and `aile status` is almost always typed into a
+   * second terminal. One held by another process is reported from its lock file.
    */
+  const steps = statusSteps(s, { home: false });
   if (st.running) {
-    const relay = st.connected ? `${C.green}CONNECTED${C.reset}`
+    line("Relay:", st.connected ? `${C.green}CONNECTED${C.reset}`
       : st.fatal ? `${C.red}REFUSED${C.reset} ${C.dim}${st.fatal}${C.reset}`
-      : `${C.yellow}reconnecting${C.reset}`;
-    console.log(`  Relay:     ${relay}`);
+      : `${C.yellow}reconnecting${C.reset}`);
     if (st.stats) {
-      console.log(`  Streams:   ${st.stats.activeStreams} active, ${st.stats.streamsOpened} total`);
-      if (st.stats.localStreamsOpened) {
-        console.log(`             ${C.dim}${st.stats.localStreamsOpened} served by your local model${C.reset}`);
-      }
-      if (st.stats.mcpStreamsOpened) {
-        console.log(`             ${C.dim}${st.stats.mcpStreamsOpened} served by your MCP server${st.stats.mcpStreamsOpened === 1 ? "" : "s"}${C.reset}`);
-      }
+      const extra = [
+        st.stats.localStreamsOpened ? `${st.stats.localStreamsOpened} by your local model` : null,
+        st.stats.mcpStreamsOpened ? `${st.stats.mcpStreamsOpened} by MCP` : null,
+      ].filter(Boolean);
+      line("Streams:", `${st.stats.activeStreams} active, ${st.stats.streamsOpened} total${extra.length ? ` ${C.dim}(${extra.join(", ")})${C.reset}` : ""}`);
     }
   } else if (holder) {
-    console.log(`  Relay:     ${C.green}RUNNING${C.reset} ${C.dim}in another process (pid ${holder.pid})${C.reset}`);
-    console.log(`             ${C.dim}started ${holder.at || "unknown"} · stop it there to free this machine${C.reset}`);
+    line("Relay:", `${C.green}RUNNING${C.reset} ${C.dim}in another process (pid ${holder.pid}, since ${holder.at || "unknown"})${C.reset}`);
   } else if (isLinked()) {
-    console.log(`  Relay:     ${C.dim}not running${C.reset} ${C.dim}· ${C.reset}${C.cyan}aile start${C.reset}${C.dim} to serve${C.reset}`);
+    // A hint only where starting a node would do something. Unknown accounts
+    // (the server did not answer) still get it; none connected, or every one
+    // nodeless (served with no machine at all), do not; and an idle account
+    // is already the Next block's `aile start`.
+    const allNodeless = me && s.accounts.length && s.nodeless === s.accounts.length;
+    const hint = !me ? `${dot}${C.cyan}aile start${C.reset}`
+      : allNodeless ? `${dot}${C.dim}not needed, your accounts are nodeless${C.reset}`
+      : "";
+    line("Relay:", `${C.dim}not running${C.reset}${hint}`);
   }
 
-  // Where the numbers live — earnings, keys and spend are a browser's job, and
-  // nobody finds a page they were never told about.
-  if (isLinked() || config.buyerKey) {
-    console.log(`  Dashboard: ${C.cyan}${dashboardUrl(server)}${C.reset} ${C.dim}· earnings, keys, spend${C.reset}`);
-  }
+  // Earnings, keys and spend are a browser's job, and nobody finds a page they
+  // were never told about.
+  if (isLinked() || config.buyerKey) line("Dashboard:", `${C.cyan}${dashboardUrl(server)}${C.reset}`);
 
-  // --- Next ---------------------------------------------------------------------
-  const steps = [];
-  if (!config.buyerKey && !setUp.length) steps.push(["aile setup", "use aile from Claude Code, Codex and more"]);
-  else if (notYet.length) steps.push([`aile setup ${notYet.map((t) => t.id).join(" ")}`, `set up ${notYet.map((t) => t.label).join(", ")}`]);
-  const shortcut = setUp.map((t) => manifest.tools[t.id]?.shortcut?.name).find(Boolean);
-  if (shortcut && steps.length === 0) steps.push([shortcut, "start coding through aile"]);
-  if (me && !me.renter.donor && me.accounts.length === 0) steps.push(["aile connect", "connect an AI account to lend"]);
-  else if (me && me.accounts.length && !st.running && !holder) steps.push(["aile start", "start serving what you connected"]);
-  if (!isLinked() && !steps.length) steps.push(["aile login", "sign in to lend and get paid"]);
-  if (!home) steps.push(["aile help", "every command"]);
-  const block = next(steps.slice(0, 3));
+  const block = next(steps);
   if (block) console.log(`\n${block}`);
   console.log();
 }
@@ -2942,7 +3026,7 @@ async function home(args) {
           ["wallet", "Wallet", "balance, and where earnings land"]]
         : [["login", "Sign in to lend", "get paid for spare capacity"]]),
       ["doctor", "Check everything", "key, server and each tool"],
-      ["status", "Refresh this overview", ""],
+      ["status", "Full status", "this machine, each account, the relay"],
       ["help", "All commands", ""],
       ["quit", "Quit", ""],
     ];
@@ -2963,7 +3047,7 @@ async function home(args) {
     else if (id === "wallet") await cmdWallet(sub);
     else if (id === "login") await cmdLogin(sub);
     else if (id === "doctor") { await doctorCommand(sub); process.exitCode = 0; }
-    else if (id === "status") await cmdStatus(sub, { home: true });
+    else if (id === "status") await cmdStatus(sub);
     else if (id === "help") usage();
     else if (id === "start") { await cmdStart(sub); return; }
   }

@@ -481,11 +481,14 @@ export async function promptConfirm(question, { defaultYes = true, input = proce
  * `promptChoice`. Redrawn in place, and bounded by the window height for the
  * same reason `promptChoice` is.
  */
-export function promptMulti(title, choices, { input = process.stdin, output = process.stdout, headings = null } = {}) {
+export function promptMulti(title, choices, { input = process.stdin, output = process.stdout, headings = null, footer = null } = {}) {
   if (!input.isTTY || typeof input.setRawMode !== "function") return Promise.resolve(null);
   return new Promise((resolve) => {
     const on = choices.map((c) => Boolean(c.checked));
-    const labelW = Math.max(0, ...choices.map((c) => width(c.label)));
+    // A row marked `option` is a setting, not an item: `a` leaves it alone, and
+    // its (usually long) label does not set the column the items' notes line
+    // up on — it would push every note to the far edge.
+    const labelW = Math.max(0, ...choices.filter((c) => !c.option).map((c) => width(c.label)));
     let index = 0;
     let painted = 0;
     const wasRaw = Boolean(input.isRaw);
@@ -522,6 +525,11 @@ export function promptMulti(title, choices, { input = process.stdin, output = pr
       }
       if (!fits) line(below ? `  ${C.dim}${sym.down} ${below} more${C.reset}` : "");
       line(menuRow("  ", `${C.dim}space toggles ${sym.dot} a all ${sym.dot} enter confirms ${sym.dot} esc cancels${C.reset}`, "", { columns: Number(output.columns) || 0 }));
+      // Extra hint lines, fitted to the window like every row: a wrapped line
+      // would throw off the redraw's walk back up.
+      for (const f of footer ? [].concat(footer) : []) {
+        line(menuRow("  ", `${C.dim}${f}${C.reset}`, "", { columns: Number(output.columns) || 0 }));
+      }
       painted = lines;
     }
     function restore() {
@@ -537,7 +545,13 @@ export function promptMulti(title, choices, { input = process.stdin, output = pr
       if (s === "\x1b[A" || s === "k") { index = (index - 1 + choices.length) % choices.length; return paint(); }
       if (s === "\x1b[B" || s === "j") { index = (index + 1) % choices.length; return paint(); }
       if (s === " ") { on[index] = !on[index]; return paint(); }
-      if (s === "a") { const all = on.every(Boolean); on.fill(!all); return paint(); }
+      if (s === "a") {
+        // `a` is "all the items", so an `option` row keeps whatever it was set to.
+        const pool = choices.flatMap((c, i) => (c.option ? [] : [i]));
+        const all = pool.every((i) => on[i]);
+        for (const i of pool) on[i] = !all;
+        return paint();
+      }
     }
     if (title) output.write(`${title}\n`);
     input.setRawMode(true);

@@ -11,15 +11,19 @@ not repeated per command.
 
 ### setup
 
-Use aile from the coding tools on this machine. With no arguments, it lists what
-is installed, lets you pick, gets an API key, shows every change, and applies
-them after you confirm.
+Use aile from the coding tools on this machine. With no arguments it shows one
+checklist of the tools installed here, each ticked, with what setup will do to
+it. For Claude Code and Codex, one more row, **Also make aile the default**,
+makes aile their default instead of only adding the shortcuts. Setup then gets
+an API key, shows every change, and applies them after you confirm. A tool that
+is not installed is not listed: name it (`aile setup droid`) to set it up
+anyway, and `aile detect` lists every tool aile knows.
 
 ```bash
 aile setup                         # pick from what is installed
 aile setup claude codex            # just these
 aile setup --all --yes             # everything found, no questions
-aile setup claude --mode default   # make aile Claude Code's default
+aile setup claude --mode default   # make aile Claude Code's default, no questions
 ```
 
 | Tool | What setup does |
@@ -396,14 +400,12 @@ aile start
 
 ### status
 
-An overview of this machine in three parts:
-- **This machine**: its id, server and settings.
-- **Coding tools**: the API key, the tools set up to use aile, and the tools
-  found here but not yet set up.
-- **Lending**: sign-in, connected accounts, what they served, and whether the
-  relay is running.
-
-It ends with the next step that applies, such as `aile setup` or `aile start`.
+Everything about this machine, one fact per line: its id and server, changed
+settings, the API key and coding tools, the account and its balance, each
+connected account and where it is served (this node, another node, nodeless or
+no node), requests served, local AI and MCP, and the relay. It ends with the
+next step that applies. `aile start` is suggested only for an account a node
+must serve: a nodeless account is served without any machine.
 
 ```bash
 aile status
@@ -412,8 +414,8 @@ aile status --json
 
 Reads the lock file, so it can report a relay running in another process.
 `--json` returns one object: `machine`, `server`, `config`, `signedIn`,
-`account`, `accounts`, `served`, `relay`, `key` (masked), `tools`, `notSetUp`
-and `settingsChanged`.
+`account`, `accounts`, `served`, `balance`, `relay`, `key` (masked), `tools`,
+`notSetUp` and `settingsChanged`.
 
 ### stats
 

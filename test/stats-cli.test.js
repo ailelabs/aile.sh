@@ -420,16 +420,16 @@ describe("aile status carries the headline, so the number is visible without a s
     } finally { srv.stop(); }
   });
 
-  it("SAYS SO WHEN NOTHING HAS BEEN SERVED, rather than leaving a zero to be interpreted", async () => {
+  it("SHOWS THE ZERO when nothing has been served, rather than leaving the line out", async () => {
     // The single most common confusion on this surface: connected, enrolled, and
-    // earning nothing. That is not a fault and the line says which it is.
+    // earning nothing. The count is shown as a count; the sentence that used to
+    // explain it was cut when the overview was trimmed (2026-09-25).
     const srv = stubServer({
       me: { ...ME, nodes: ME.nodes.map((n) => ({ ...n, requests: 0, earnedMicros: 0, lastServedAt: null })) },
     });
     try {
       const res = await run(["status"], { data: signedInData(srv.url) });
       expect(res.stdout).toMatch(/Served:\s+0 requests across 3 machines/);
-      expect(res.stdout).toMatch(/a connected machine earns only once requests reach it/i);
     } finally { srv.stop(); }
   });
 
