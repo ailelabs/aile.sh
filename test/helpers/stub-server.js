@@ -25,6 +25,8 @@ export async function startStubServer({ onHello = null } = {}) {
     bytesFromNode: [],
     errors: [],
     connectCount: 0,
+    /** Stop answering PING, imitating a link that went silent without closing. */
+    mute: false,
     streams: new Map(), // streamId → Duplex
     /** Set to refuse every /agent upgrade, imitating a node the server has
      *  decided about (wrong owner, unknown node). Cleared by `accept()`. */
@@ -95,7 +97,7 @@ export async function startStubServer({ onHello = null } = {}) {
           const d = state.streams.get(streamId);
           if (d) { d.destroy(new Error(payload.toString("utf8"))); state.streams.delete(streamId); }
         } else if (op === OP.PING) {
-          ws.send(encodeFrame(OP.PONG, streamId));
+          if (!state.mute) ws.send(encodeFrame(OP.PONG, streamId));
         }
       },
       close(ws) {
@@ -171,6 +173,8 @@ export async function startStubServer({ onHello = null } = {}) {
     },
     /** Accept again. */
     accept: () => { state.reject = null; },
+    /** Keep every socket open but stop answering pings (`false` to resume). */
+    mute: (on = true) => { state.mute = on; },
     stop: () => server.stop(true),
   };
 }

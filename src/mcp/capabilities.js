@@ -78,7 +78,7 @@ export function buildMcpCapability({ detect = detectRuntime, load = enabledMcpSe
 
   const runtime = detect();
   if (!runtime.ok) {
-    warnOnce(log, `[MCP] not advertising ${declared.length} declared MCP server(s): ${runtime.message}`);
+    warnOnce(log, `MCP: ${declared.length} server${declared.length === 1 ? "" : "s"} not served · ${runtime.short ?? runtime.message}`);
     return { servers: [], runtime, reason: runtime.message };
   }
 
@@ -128,7 +128,7 @@ export function mcpStatus(opts = {}) {
       egressEnforced: describeEgress(s).enforced,
     })),
     configError,
-    runtime: { state: runtime.state, message: runtime.message, ok: runtime.ok },
+    runtime: { state: runtime.state, message: runtime.message, short: runtime.short ?? null, ok: runtime.ok },
     advertising: !configError && runtime.ok ? declared.length : 0,
   };
 }

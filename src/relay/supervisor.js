@@ -17,6 +17,57 @@ import { buildMcpCapability } from "../mcp/capabilities.js";
 import { MCP_CONFIG_FILE } from "../mcp/config.js";
 import { reapOrphans } from "../mcp/sandbox.js";
 import { logger } from "../config/logger.js";
+import { C } from "../cli/colors.js";
+import { sym } from "../cli/ui.js";
+
+/**
+ * EVERY LINE A RUNNING NODE PRINTS CARRIES THE TIME. `aile start` runs for
+ * days; "disconnected" with no time on it cannot be matched to a deploy, a
+ * Wi-Fi drop or a laptop lid, which are the three things that cause it.
+ */
+const pad2 = (n) => String(n).padStart(2, "0");
+const clock = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const stamped = {
+  log: (...a) => console.log(`${C.dim}${clock()}${C.reset}  ${a.join(" ")}`),
+  error: (...a) => console.error(`${C.dim}${clock()}${C.reset}  ${a.join(" ")}`),
+};
+const nodeLog = (level) => logger(level, stamped);
+
+/**
+ * A DROPPED LINK IS REPORTED ONCE, AND ONLY IF IT MATTERS.
+ *
+ * Every server deploy cuts every node's socket, and so does any Wi-Fi blip or
+ * Cloudflare edge restart — several times a day, each healed in seconds by the
+ * reconnect loop. Printing "disconnected (1006)" and "connected" for each one
+ * made a healthy node look broken. So a drop starts a quiet window: back inside
+ * it, one dim line says so; still down at its end, one line says the link is
+ * lost, then a reminder every few minutes, then how long it was down.
+ */
+const DROP_QUIET_MS = 15_000;
+// A server that announced a restart (close 1012) needs its boot time too.
+const RESTART_QUIET_MS = 45_000;
+const STILL_EVERY_MS = 5 * 60_000;
+
+function human(ms) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${pad2(s % 60)}s`;
+  return `${Math.floor(m / 60)}h ${pad2(m % 60)}m`;
+}
+
+/** Why the socket closed, in words; null for a takeover the agent already explained. */
+function closeReason(info) {
+  const code = info?.code;
+  if (code === 4001) return null;
+  if (info?.stale) return "the link went silent";
+  if (code === 1012 || code === 1001) return "server restarting";
+  if (!code || code === 1006) return "network drop";
+  if (code === 1000) return info?.reason ? `closed by the server: ${info.reason}` : "closed by the server";
+  return `closed by the server (${code}${info?.reason ? `: ${info.reason}` : ""})`;
+}
+
+const hostOf = (url) => { try { return new URL(url).host; } catch { return url; } };
 
 /**
  * How often the MCP declaration file is stat'd, and the floor between the
@@ -55,7 +106,80 @@ const state = {
   mcpLastReadvertiseAt: 0,
   mcpPending: false,
   mcpPendingTimer: null,
+  // The link's story, for the one-line-per-event reporting above.
+  everConnected: false,
+  dropAt: null,
+  dropWhy: null,
+  lostAnnounced: false,
+  lostTimer: null,
+  failSince: null,
+  stillAt: 0,
 };
+
+/** The socket closed under a running node: start the quiet window. */
+function noteDrop(info, log) {
+  if (state.stopped || state.dropAt !== null) return;
+  const why = closeReason(info);
+  if (why === null) return;
+  state.dropAt = Date.now();
+  state.dropWhy = why;
+  state.lostAnnounced = false;
+  const quiet = info?.code === 1012 || info?.code === 1001 ? RESTART_QUIET_MS : DROP_QUIET_MS;
+  if (state.lostTimer) clearTimeout(state.lostTimer);
+  state.lostTimer = setTimeout(() => {
+    state.lostTimer = null;
+    if (state.stopped || state.dropAt === null) return;
+    state.lostAnnounced = true;
+    state.stillAt = Date.now();
+    log.warn(`${C.yellow}${sym.warn}${C.reset} connection lost ${C.dim}(${state.dropWhy}) · reconnecting…${C.reset}`);
+  }, quiet);
+  if (state.lostTimer.unref) state.lostTimer.unref();
+}
+
+/** A connect attempt that failed on the way there, not a refusal. */
+function noteFailure(err, config, log) {
+  const what = err.message === "websocket error" ? `can't reach ${hostOf(config.serverUrl)}` : err.message;
+  const now = Date.now();
+  if (state.dropAt !== null) {
+    // Inside a drop the quiet window speaks for it; after that, a reminder.
+    if (state.lostAnnounced && now - state.stillAt >= STILL_EVERY_MS) {
+      state.stillAt = now;
+      log.warn(`${C.yellow}${sym.warn}${C.reset} still reconnecting ${C.dim}· down ${human(now - state.dropAt)} · ${what}${C.reset}`);
+    }
+    return;
+  }
+  if (state.failSince === null) {
+    // Never connected yet this run: the first failure is news.
+    state.failSince = now;
+    state.stillAt = now;
+    log.error(`${C.red}${sym.fail}${C.reset} ${what} ${C.dim}· retrying${C.reset}`);
+    return;
+  }
+  if (now - state.stillAt >= STILL_EVERY_MS) {
+    state.stillAt = now;
+    log.warn(`${C.yellow}${sym.warn}${C.reset} still trying ${C.dim}· ${human(now - state.failSince)} · ${what}${C.reset}`);
+  }
+}
+
+/** Connected: close whatever story was open, in one line. */
+function noteConnected(nodeId, log) {
+  if (state.lostTimer) { clearTimeout(state.lostTimer); state.lostTimer = null; }
+  if (state.dropAt !== null) {
+    const down = human(Date.now() - state.dropAt);
+    log.info(state.lostAnnounced
+      ? `${C.green}${sym.ok}${C.reset} reconnected after ${down}`
+      : `${C.dim}${sym.ok} reconnected in ${down} · ${state.dropWhy}${C.reset}`);
+  } else if (state.failSince !== null && state.everConnected === false) {
+    log.info(`${C.green}${sym.live}${C.reset} connected as node ${nodeId} ${C.dim}after ${human(Date.now() - state.failSince)}${C.reset}`);
+  } else {
+    log.info(`${C.green}${sym.live}${C.reset} connected as node ${nodeId}`);
+  }
+  state.everConnected = true;
+  state.dropAt = null;
+  state.dropWhy = null;
+  state.lostAnnounced = false;
+  state.failSince = null;
+}
 
 export function backoffDelay(attempt, { min = BACKOFF_MIN_MS, max = BACKOFF_MAX_MS } = {}) {
   const base = Math.min(min * 2 ** attempt, max);
@@ -102,7 +226,7 @@ export async function startRelayAgent() {
   // A node killed mid-session leaves a rented container running with somebody
   // else's work inside it. Reaping at start bounds that to one crash rather
   // than one per crash; the name prefix scopes it to our own containers.
-  try { reapOrphans({ log: logger(config.logLevel) }); } catch { /* no runtime, nothing to reap */ }
+  try { reapOrphans({ log: nodeLog(config.logLevel) }); } catch { /* no runtime, nothing to reap */ }
   await connectOnce(config);
   return getRelayStatus();
 }
@@ -134,8 +258,8 @@ async function repairIdentity(config, log) {
     log: (m) => log.info(m.trim()),
   });
   const after = getNodeId();
-  if (res.rotated) log.info(`[aile] machine re-registered as ${after} (was ${before})`);
-  else log.info(`[aile] machine re-registered as ${after}`);
+  if (res.rotated) log.info(`machine re-registered as ${after} (was ${before})`);
+  else log.info(`machine re-registered as ${after}`);
   return res;
 }
 
@@ -143,7 +267,7 @@ async function connectOnce(config) {
   if (state.connecting || state.stopped) return;
   if (state.agent?.getStats?.().connected) return;
   state.connecting = true;
-  const log = logger(config.logLevel);
+  const log = nodeLog(config.logLevel);
 
   try {
     const nodeId = getNodeId();
@@ -174,8 +298,12 @@ async function connectOnce(config) {
       idleTimeoutMs: config.idleTimeoutMs,
       maxPendingBytes: config.maxPendingBytes,
       log,
-      onStatus: (s) => {
-        if (s === "disconnected") scheduleReconnect();
+      onStatus: (s, _stats, info) => {
+        if (s !== "disconnected") return;
+        // Only a socket that had OPENED is a drop; a failed dial reports
+        // itself through the catch below.
+        if (info?.opened) noteDrop(info, log);
+        scheduleReconnect();
       },
     });
 
@@ -188,16 +316,15 @@ async function connectOnce(config) {
     state.lastError = null;
     state.lastConnectedAt = new Date().toISOString();
     saveState({ nodeId, lastConnectedAt: state.lastConnectedAt, serverUrl: config.serverUrl });
-    log.info(`[aile] connected as node ${nodeId}`);
+    noteConnected(nodeId, log);
   } catch (err) {
     state.lastError = err.message;
-    // A bare "websocket error" is all a failed upgrade says when the server
-    // could not be asked why — i.e. it was not there. Name the server instead.
-    if (err.message === "websocket error" && !err.blocked && !err.rejected) {
-      log.error(`[aile] cannot reach ${config.serverUrl} — retrying`);
-    } else {
-      log.error(`[aile] connect failed: ${err.message}`);
-    }
+    // A refusal is loud every time; a failed dial — the server not there, or
+    // not yet back — goes through the quiet reporting above. A bare
+    // "websocket error" is all a failed upgrade says when the server could not
+    // be asked why, i.e. it was not there, so it is named as unreachable.
+    if (err.blocked || err.rejected) log.error(`connect failed: ${err.message}`);
+    else noteFailure(err, config, log);
 
     // NOTHING REACHED THE SERVER. An access proxy, a captive portal, a corporate
     // gateway — the relay never saw the request, so it has no opinion to change and
@@ -205,7 +332,7 @@ async function connectOnce(config) {
     // rather than reprinting this paragraph every few seconds until someone notices.
     if (err.blocked) {
       state.fatal = err.message;
-      log.error(`[aile] giving up — nothing this node does can get past that.`);
+      log.error(`giving up — nothing this node does can get past that.`);
       return;
     }
 
@@ -217,7 +344,7 @@ async function connectOnce(config) {
     if (err.rejected) {
       if (state.repaired) {
         state.fatal = err.message;
-        log.error(`[aile] this machine is not accepted by ${config.serverUrl}. Run \`aile login\` to sign in again.`);
+        log.error(`this machine is not accepted by ${config.serverUrl}. Run \`aile login\` to sign in again.`);
         return;
       }
       state.repaired = true;
@@ -228,8 +355,8 @@ async function connectOnce(config) {
         // Re-enrolling failed too. If the *token* is what the server rejects,
         // no identity fixes that and only a sign-in will.
         state.fatal = `${err.message} (re-registering failed: ${e.message})`;
-        log.error(`[aile] could not re-register this machine: ${e.message}`);
-        log.error(`[aile] run \`aile login\` to sign in again.`);
+        log.error(`could not re-register this machine: ${e.message}`);
+        log.error(`run \`aile login\` to sign in again.`);
         return;
       }
     }
@@ -364,6 +491,12 @@ export function stopRelayAgent(reason = "manual stop") {
   state.agent?.stop(reason);
   state.agent = null;
   state.attempt = 0;
+  if (state.lostTimer) { clearTimeout(state.lostTimer); state.lostTimer = null; }
+  state.everConnected = false;
+  state.dropAt = null;
+  state.dropWhy = null;
+  state.lostAnnounced = false;
+  state.failSince = null;
   state.fatal = null;
   state.repaired = false;
   clearState();

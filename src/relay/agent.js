@@ -106,6 +106,7 @@ export class RelayAgent {
     this.closed = false;
     this.pingTimer = null;
     this.lastPongAt = 0;
+    this._abandon = null;
     // localStreamsOpened is counted separately from streamsOpened so a lender
     // can see how much of their traffic took the non-blind path.
     this.stats = {
@@ -176,28 +177,48 @@ export class RelayAgent {
         }
       };
 
-      ws.onclose = (event) => {
+      // ONE REPORT PER SOCKET, however it ends: its close event, or the ping
+      // timer giving up on a link that went silent. A dead TCP connection may
+      // not deliver a close event for minutes, so waiting for one left the node
+      // "connected" to nothing; and reporting both would print the drop twice.
+      let ended = false;
+      const end = (code, reason, stale = false) => {
+        if (ended) return;
+        ended = true;
+        if (this._abandon === abandon) this._abandon = null;
         // Report WHY. A close code discarded here is a reconnect loop with no
         // stated cause, which reads as a flaky network no matter what actually
         // happened — 4001 ("superseded") in particular is self-inflicted and
         // instantly diagnosable, but only if it is printed.
-        const code = event?.code;
-        const reason = String(event?.reason || "").trim();
         if (code === CLOSE_SUPERSEDED) {
           this.log?.warn?.(
-            "[aile] another agent on this machine took over the connection — " +
+            "another agent on this machine took over the connection — " +
             "only one can run at a time",
           );
-        } else if (!this.closed && code && opened) {
-          this.log?.warn?.(`[aile] disconnected (${code}${reason ? `: ${reason}` : ""})`);
         }
+        // Every other close is reported by the supervisor, which is the one
+        // that knows whether the link came back in two seconds or never: a
+        // line per drop, printed here, turned every server deploy into a pair
+        // of alarming lines about a code (1006) nobody can act on.
         this._teardown();
-        this._emitStatus("disconnected");
+        this._emitStatus("disconnected", { code: code ?? null, reason, opened, stale });
         if (!settled) {
           settled = true;
           reject(new Error(`websocket closed before open (${code || "no code"}${reason ? `: ${reason}` : ""})`));
         }
       };
+      const abandon = () => {
+        // Detached first, so a close event that does arrive late from this dead
+        // socket cannot report the same drop again.
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try { ws.close(); } catch { /* already gone */ }
+        if (this.ws === ws) this.ws = null;
+        end(null, "", true);
+      };
+      this._abandon = abandon;
+      ws.onclose = (event) => end(event?.code ?? null, String(event?.reason || "").trim());
     });
   }
 
@@ -661,8 +682,10 @@ export class RelayAgent {
     this.pingTimer = setInterval(() => {
       if (this.ws?.readyState !== 1) return;
       if (Date.now() - this.lastPongAt > this.pongTimeoutMs) {
-        this.log?.warn?.("[Relay] pong timeout — reconnecting");
-        try { this.ws.close(); } catch { /* ignore */ }
+        // Said by the supervisor, once, as a lost link — not here as well.
+        this.log?.debug?.(`no pong for ${Math.round(this.pongTimeoutMs / 1000)}s — dropping the link`);
+        if (this._abandon) this._abandon();
+        else try { this.ws.close(); } catch { /* ignore */ }
         return;
       }
       this._sendFrame(encodeFrame(OP.PING, 0));
@@ -680,8 +703,8 @@ export class RelayAgent {
     for (const streamId of [...this.streams.keys()]) this._closeStream(streamId);
   }
 
-  _emitStatus(state) {
-    try { this.onStatus?.(state, this.getStats()); } catch { /* observer must not break the agent */ }
+  _emitStatus(state, info = null) {
+    try { this.onStatus?.(state, this.getStats(), info); } catch { /* observer must not break the agent */ }
   }
 
   getStats() {
@@ -693,6 +716,6 @@ export class RelayAgent {
     this._teardown();
     try { this.ws?.close(); } catch { /* ignore */ }
     this.ws = null;
-    this.log?.log?.(`[Relay] agent stopped: ${reason}`);
+    this.log?.debug?.(`agent stopped: ${reason}`);
   }
 }

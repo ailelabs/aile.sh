@@ -378,7 +378,7 @@ describe("sandboxed MCP capacity is advertised the same way, and withheld the sa
     buildMcpCapability(args);
 
     expect(warned).toHaveLength(1);
-    expect(warned[0]).toMatch(/not advertising 1 declared MCP server/);
+    expect(warned[0]).toMatch(/MCP: 1 server not served/);
   });
 
   it("says it again when the reason changes, and after a recovery", () => {

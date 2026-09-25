@@ -93,6 +93,9 @@ export function detectRuntime({ runtimes = RUNTIMES, run = spawnSync } = {}) {
       message:
         `a container runtime is installed but not running${lastMessage ? ` (${lastMessage})` : ""} — ` +
         `start Docker Desktop (or the docker service) before lending MCP capacity`,
+      // The one-line form for a running node's log and `aile start`'s header;
+      // the runtime's own error text stays in `message`, for `aile mcp`.
+      short: "Docker isn't running · start Docker Desktop",
     };
   }
   return {
@@ -102,6 +105,7 @@ export function detectRuntime({ runtimes = RUNTIMES, run = spawnSync } = {}) {
     message:
       "no container runtime found on PATH — install Docker (or Podman). " +
       "MCP capacity is never served without a sandbox.",
+    short: "no Docker or Podman installed",
   };
 }
 

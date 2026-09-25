@@ -10,6 +10,28 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-09-26
+
+### Changed
+
+- `aile start` opens with one short block — server, accounts, relay, self-hosted
+  model and MCP as aligned rows — in place of the banner and paragraphs. An MCP
+  server that cannot run is one row ("1 not served · Docker isn't running")
+  instead of a long runtime error repeated in the log.
+- A running node's log is quieter and timestamped. A dropped link that comes
+  back within seconds (a server deploy, a Wi-Fi blip) prints one dim line saying
+  so, not "disconnected (1006)" and "connected" for each. A link still down after
+  15 seconds prints "connection lost" once, a reminder every 5 minutes, and how
+  long it was down when it returns. A server restart is named as one.
+- ElevenLabs, Firecrawl and Brave Search accounts can be lent: their API hosts
+  are on the node's allowlist.
+
+### Fixed
+
+- A link that goes silent without closing (a sleeping laptop, a dead Wi-Fi
+  access point) is redialled as soon as pings stop being answered, without
+  waiting for the dead socket to close, and reported once rather than twice.
+
 ## [1.1.2] - 2026-09-25
 
 ### Added

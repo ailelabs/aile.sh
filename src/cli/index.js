@@ -34,7 +34,7 @@ import { describeKey } from "../setup/key.js";
 import { SCHEMA } from "../config/settings.js";
 import { sym, heading, next, kv, withSpinner, width, padTo, die as uiDie } from "./ui.js";
 import { overview, commandHelp, findCommand, unknownCommand } from "./help.js";
-import { mcpStatus } from "../mcp/capabilities.js";
+import { mcpStatus, buildMcpCapability } from "../mcp/capabilities.js";
 import { getNodeId, getNodeInfo } from "../relay/identity.js";
 import { startRelayAgent, stopRelayAgent, getRelayStatus } from "../relay/supervisor.js";
 import { clearState } from "../relay/state.js";
@@ -1694,7 +1694,6 @@ async function cmdStatus(args, { home = false } = {}) {
 }
 
 async function cmdStart(args) {
-  banner();
   const config = loadConfig();
   requireToken(config);
 
@@ -1712,50 +1711,55 @@ async function cmdStart(args) {
   }
   process.on("exit", releaseLock);
 
-  // Starting with no accounts is legitimate — the node connects and begins
-  // serving the moment an account is added, so refusing here would make the
-  // common case (sign in, start, add accounts later) needlessly awkward.
-  //
-  // `/me` rather than the account list alone, because it also answers whether
-  // this is a donor machine — and a long-running process should say what it is
-  // doing on the line where it starts doing it, not leave it to `aile status`.
+  /**
+   * ONE BLOCK, THEN THE LOG. Everything the node is about to do is read first
+   * — the account (a donor machine, or none connected, changes what it serves),
+   * the self-hosted model and MCP — and said once as aligned rows, so the
+   * timestamped event lines that follow are the only thing that moves.
+   *
+   * Two facts stay on it however short it gets: what the relay can read
+   * (subscription traffic is blind, a self-hosted model's prompts are NOT —
+   * a lender who turned that on opted into a different privacy property), and
+   * that a node with nothing connected serves nothing.
+   */
+  let me = null;
   try {
     const insecure = !isSecureUrl(config.serverUrl) && config.allowInsecure === true;
-    const me = await api.me({ serverUrl: config.serverUrl, token: config.renterToken, insecure });
-    const accounts = me.accounts || [];
-    if (me.renter?.donor) {
-      console.log(`\n${C.yellow}Contributing unpaid.${C.reset} ${C.dim}Nothing accrues to this machine — ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to be paid instead.${C.reset}`);
-    }
-    // "Serves nothing" is only true when there is no local model either. A
-    // lender who set one up and is told they serve nothing concludes it failed.
-    if (!accounts.length && !(config.localEnabled && config.localEndpoint)) {
-      console.log(`\n${C.yellow}No accounts connected.${C.reset} This machine will run but serve nothing.`);
-      console.log(`${C.dim}Add one with: ${C.reset}${C.cyan}aile connect${C.reset}`);
-    } else if (!accounts.length) {
-      console.log(`\n${C.dim}No provider accounts — serving your self-hosted model only.${C.reset}`);
-    }
-  } catch { /* offline — the supervisor reports connection state itself */ }
-
-  console.log(`\n${C.dim}Relaying encrypted bytes only — request contents are never readable here.${C.reset}`);
-
-  // Say this plainly at the moment the node starts serving. A lender who turned
-  // on self-hosted lending has opted into a different privacy property, and the
-  // one line of output that could correct a wrong assumption is this one.
-  if (config.localEnabled && config.localEndpoint) {
-    console.log(`${C.yellow}Self-hosted model is on${C.reset} ${C.dim}${config.localEndpoint}${C.reset}`);
-    console.log(`${C.dim}Those requests run ${C.reset}${C.yellow}on this machine${C.reset}${C.dim}, so this machine reads them.`);
-    console.log(`Only subscription traffic is relayed blind.${C.reset}`);
+    me = await withSpinner("Checking your account…", api.me({ serverUrl: config.serverUrl, token: config.renterToken, insecure }));
+  } catch { /* offline: the node's log reports the link itself */ }
+  const mcp = mcpStatus();
+  // The header states why MCP is not served; tell the node's own log that it
+  // has been said, so the same sentence does not follow it a line later.
+  if (mcp.declared.length && !mcp.configError && !mcp.runtime.ok) {
+    buildMcpCapability({ log: { warn() {} }, detect: () => mcp.runtime });
   }
 
-  console.log(`${C.dim}${config.maxConcurrent} concurrent streams · log ${config.logLevel} · ` +
-              `reconnect ${config.autoReconnect ? "on" : `${C.reset}${C.yellow}off${C.reset}${C.dim}`}${C.reset}`);
-  // What happens now, said once: a node that connected and then printed nothing
-  // looks exactly like one that hung.
-  console.log(`\n${C.dim}Connecting to ${config.serverUrl}. Leave this running — Ctrl+C stops it.${C.reset}`);
-  console.log(`${C.dim}From another terminal: ${C.reset}${C.cyan}aile status${C.reset}${C.dim} shows whether it is serving.${C.reset}\n`);
+  const accounts = me ? me.accounts || [] : null;
+  const local = Boolean(config.localEnabled && config.localEndpoint);
+  let host = config.serverUrl;
+  try { host = new URL(config.serverUrl).host; } catch { /* shown as written */ }
+  const rows = [
+    ["Server", host],
+    accounts === null ? null
+      : me.renter?.donor ? ["Account", `${C.yellow}contributing, unpaid${C.reset} ${C.dim}· ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to be paid${C.reset}`]
+      : accounts.length ? ["Accounts", `${accounts.length} connected`]
+      // "Serves nothing" is only true with no self-hosted model either.
+      : local ? ["Accounts", `${C.dim}none · serving your self-hosted model only${C.reset}`]
+      : ["Accounts", `${C.yellow}none${C.reset} ${C.dim}· serves nothing until you run${C.reset} ${C.cyan}aile connect${C.reset}`],
+    ["Relay", `subscription traffic, relayed blind ${C.dim}· ${config.maxConcurrent} streams at once${C.reset}`],
+    local ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}this machine reads those prompts${C.reset}`] : null,
+    mcp.configError ? ["MCP", `${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`]
+      : !mcp.declared.length ? null
+      : mcp.runtime.ok ? ["MCP", `${mcp.declared.length} server${mcp.declared.length === 1 ? "" : "s"}`]
+      : ["MCP", `${C.yellow}${mcp.declared.length} not served${C.reset} ${C.dim}· ${mcp.runtime.short ?? mcp.runtime.message}${C.reset}`],
+    config.autoReconnect === false ? ["Reconnect", `${C.yellow}off${C.reset}`] : null,
+  ];
+  console.log(`\n${heading("aile.sh", "lending from this machine · Ctrl+C stops")}\n`);
+  console.log(kv(rows.filter(Boolean)));
+  console.log(`\n${C.dim}${C.reset}${C.cyan}aile status${C.reset}${C.dim} in another terminal shows what it is serving.${C.reset}\n`);
 
   const shutdown = (sig) => {
-    console.log(`\n${C.dim}[aile] ${sig} — stopping…${C.reset}`);
+    console.log(`\n${C.dim}stopping (${sig})…${C.reset}`);
     stopRelayAgent(sig);
     process.exit(0);
   };
