@@ -22,6 +22,7 @@
 
 import { describe, expect, it, beforeEach, afterAll } from "bun:test";
 import os from "node:os";
+import net from "node:net";
 
 import { buildCapabilities, SAFE_FIELDS, DERIVED_FIELDS } from "../src/relay/attest.js";
 import { saveConfig, resetSettings } from "../src/relay/config.js";
@@ -311,13 +312,18 @@ describe("self-hosted capacity stays separable from a subscription", () => {
   // the blind-relay guarantee covers traffic it does not cover.
   it("is advertised under its own key, never merged into claimedConnections", async () => {
     stub = stubServer({ accounts: [LEAKY_ACCOUNT] });
+    // A model server that answers: nothing is advertised for one that does not.
+    const model = net.createServer((c) => c.end());
+    await new Promise((r) => model.listen(0, "127.0.0.1", r));
+    const port = model.address().port;
     saveConfig({
       serverUrl: stub.url, renterToken: "ail_tok",
-      localEndpoint: "http://127.0.0.1:11434", localEnabled: true, localModels: "llama3",
+      localEndpoint: `http://127.0.0.1:${port}`, localEnabled: true, localModels: "llama3",
     });
 
-    const caps = await build();
-    expect(caps.localModel).toEqual({ blind: false, models: ["llama3"], endpointPort: 11434 });
+    let caps;
+    try { caps = await build(); } finally { await new Promise((r) => model.close(r)); }
+    expect(caps.localModel).toEqual({ blind: false, models: ["llama3"], endpointPort: port });
     // The subscription account is listed on its own, untouched — the assertion
     // is about the two staying separable, so it matches on identity rather than
     // on the full field list (which the allowlist test above pins).

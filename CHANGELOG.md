@@ -10,6 +10,25 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-09-26
+
+### Fixed
+
+- A self-hosted model is listed only while something answers at its endpoint.
+  A model you named with `localModels` used to be advertised whatever was
+  running, so a stopped or never-installed Ollama left a listing buyers could
+  not use, and the marketplace showed it offline with nothing on your screen to
+  say why. The node now checks the endpoint before advertising, re-checks every
+  minute, and lists or unlists the model on its own when that changes.
+
+### Changed
+
+- `aile start` says when the self-hosted model is not answering ("Local AI …
+  not answering · llama3 listed once it does"), and the log prints one line
+  when it starts or stops answering.
+- `aile local` shows whether the endpoint is answering, and setting an endpoint
+  that nothing answers at says so instead of "Advertising: …".
+
 ## [1.1.4] - 2026-09-26
 
 ### Fixed

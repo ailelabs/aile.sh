@@ -137,11 +137,15 @@ export async function resolveLocalTarget(raw) {
  * take down the connection: an unreachable model server means "advertise
  * nothing", not "refuse to be a node".
  */
-export async function discoverLocalModels(config, { fetchImpl = fetch, timeoutMs = 5000 } = {}) {
-  const declared = String(config.localModels || "")
+function declaredModels(config) {
+  return String(config.localModels || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+export async function discoverLocalModels(config, { fetchImpl = fetch, timeoutMs = 5000 } = {}) {
+  const declared = declaredModels(config);
   if (declared.length) return declared;
 
   const controller = new AbortController();
@@ -163,25 +167,84 @@ export async function discoverLocalModels(config, { fetchImpl = fetch, timeoutMs
 }
 
 /**
- * Capability block for the hello payload, or null when not lending locally.
- * Shape is deliberately distinct from `claimedConnections` so the server cannot
- * confuse self-hosted capacity with an attested subscription.
+ * Does anything accept a connection at host:port? Resolves `{ ok, reason }`,
+ * never throws.
+ *
+ * A TCP accept and nothing more, because that is exactly what a LOCAL_OPEN
+ * needs: the node opens a socket there and the server's request rides it. An
+ * HTTP check would add opinions this does not want — a self-signed https
+ * endpoint, or a runtime with no `/v1/models`, would read as down while serving
+ * fine. Whether what answers is any good is the server's known-answer probe's
+ * question, not this one's.
+ */
+export function tcpAnswers(host, port, { timeoutMs = 3000 } = {}) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok, reason = null) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch { /* already gone */ }
+      resolve({ ok, reason });
+    };
+    const sock = net.connect({ host, port });
+    sock.setTimeout(timeoutMs, () => finish(false, `no answer in ${Math.round(timeoutMs / 1000)}s`));
+    sock.once("connect", () => finish(true));
+    sock.once("error", (e) => finish(false,
+      e?.code === "ECONNREFUSED" ? "nothing is listening" : (e?.code || e?.message || "unreachable")));
+  });
+}
+
+/**
+ * Where self-hosted lending stands right now, for the capability AND for what
+ * the node says about it:
+ *
+ *   { state: "off" }                                  lending is switched off
+ *   { state: "misconfigured", reason }                the endpoint is refused
+ *   { state: "down", reason, port, models }           nothing answers there
+ *   { state: "up", port, models }                     advertise it
+ *
+ * THE NODE ADVERTISES A MODEL ONLY WHILE SOMETHING ANSWERS FOR IT. Named models
+ * (`localModels`) used to be advertised on the lender's word alone, so a node
+ * whose model server was stopped — or never installed — listed a model it
+ * could not serve, the server's hourly probe failed against it for as long as
+ * the node was up, and the lender saw nothing wrong. `models` on a "down"
+ * status is what WOULD be listed, for the sentence that says so.
+ */
+export async function localStatus(config, { connect = tcpAnswers, fetchImpl = fetch, timeoutMs = 3000 } = {}) {
+  if (!config.localEnabled) return { state: "off" };
+  let target;
+  try {
+    target = await resolveLocalTarget(config.localEndpoint);
+  } catch (e) {
+    return { state: "misconfigured", reason: e.message };
+  }
+  const reach = await connect(target.host, target.port, { timeoutMs });
+  if (!reach.ok) {
+    return { state: "down", reason: reach.reason || "unreachable", port: target.port, models: declaredModels(config) };
+  }
+  const models = await discoverLocalModels(config, { fetchImpl, timeoutMs });
+  return { state: "up", port: target.port, models };
+}
+
+/** The hello block for a status from `localStatus`, or null unless it is up. */
+export function localCapabilityFrom(status) {
+  if (status?.state !== "up") return null;
+  return {
+    // Named so a reader cannot mistake it for a verified claim, and so the
+    // server has an unambiguous flag to route and label with.
+    blind: false,
+    models: status.models,
+    endpointPort: status.port,
+  };
+}
+
+/**
+ * Capability block for the hello payload, or null when not lending locally —
+ * or when the endpoint is misconfigured or not answering, which must never
+ * stop the node relaying subscription traffic. Shape is deliberately distinct
+ * from `claimedConnections` so the server cannot confuse self-hosted capacity
+ * with an attested subscription.
  */
 export async function buildLocalCapability(config, opts = {}) {
-  if (!config.localEnabled) return null;
-  try {
-    const target = await resolveLocalTarget(config.localEndpoint);
-    const models = await discoverLocalModels(config, opts);
-    return {
-      // Named so a reader cannot mistake it for a verified claim, and so the
-      // server has an unambiguous flag to route and label with.
-      blind: false,
-      models,
-      endpointPort: target.port,
-    };
-  } catch {
-    // Misconfigured local endpoint must not stop the node relaying
-    // subscription traffic, which is unaffected by it.
-    return null;
-  }
+  return localCapabilityFrom(await localStatus(config, opts));
 }

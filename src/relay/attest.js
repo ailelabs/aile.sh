@@ -19,7 +19,7 @@
 
 import { api } from "../api/client.js";
 import { loadConfig } from "./config.js";
-import { buildLocalCapability } from "./local.js";
+import { buildLocalCapability, localCapabilityFrom } from "./local.js";
 import { buildMcpCapability } from "../mcp/capabilities.js";
 import { isApiKeyProvider } from "../providers/index.js";
 
@@ -55,7 +55,7 @@ function toCapability(account) {
   return out;
 }
 
-export async function buildCapabilities({ nodeId, maxConcurrent, mcp = null }) {
+export async function buildCapabilities({ nodeId, maxConcurrent, mcp = null, local = null }) {
   const config = loadConfig();
   let accounts = [];
   try {
@@ -76,8 +76,10 @@ export async function buildCapabilities({ nodeId, maxConcurrent, mcp = null }) {
   // Self-hosted capacity is advertised under its own key, never merged into
   // claimedConnections. A local model is a different product with a different
   // privacy story — it is not blind — and the server must be able to route and
-  // label the two separately. See relay/local.js.
-  const localModel = await buildLocalCapability(config);
+  // label the two separately. See relay/local.js. Accepted from the caller for
+  // the same reason as `mcp` below: the supervisor needs the same answer to say
+  // whether the model server is up, and checking twice could disagree.
+  const localModel = local ? localCapabilityFrom(local) : await buildLocalCapability(config);
 
   // Sandboxed MCP servers, advertised under their own key for the same reason
   // localModel is: the compute happens HERE, so the path is not blind, and the

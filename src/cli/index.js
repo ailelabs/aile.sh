@@ -23,7 +23,7 @@
  */
 
 import { loadConfig, saveConfig, updateSettings, isLinked, storedOverrides, CONFIG_FILE } from "../relay/config.js";
-import { resolveLocalTarget, discoverLocalModels, buildLocalCapability } from "../relay/local.js";
+import { resolveLocalTarget, discoverLocalModels, buildLocalCapability, localStatus } from "../relay/local.js";
 import { configCommand } from "./config-command.js";
 import { mcpCommand } from "./mcp-command.js";
 import { setupCommand, runCommand, envCommand, doctorCommand, detectCommand, setupRemove, setupRefresh, toolsSetUp, isInstalled } from "./setup-command.js";
@@ -36,7 +36,7 @@ import { sym, heading, next, kv, withSpinner, width, padTo, die as uiDie } from 
 import { overview, commandHelp, findCommand, unknownCommand } from "./help.js";
 import { mcpStatus, buildMcpCapability } from "../mcp/capabilities.js";
 import { getNodeId, getNodeInfo } from "../relay/identity.js";
-import { startRelayAgent, stopRelayAgent, getRelayStatus } from "../relay/supervisor.js";
+import { startRelayAgent, stopRelayAgent, getRelayStatus, seedLocalState } from "../relay/supervisor.js";
 import { clearState } from "../relay/state.js";
 import { acquireLock, releaseLock, lockHolder } from "../relay/lock.js";
 import { enrollNodeOrRotate, enrollDonor } from "../relay/enroll.js";
@@ -1736,6 +1736,13 @@ async function cmdStart(args) {
 
   const accounts = me ? me.accounts || [] : null;
   const local = Boolean(config.localEnabled && config.localEndpoint);
+  // Whether the model server answers, not just whether one is configured: a
+  // stopped (or never-installed) Ollama is listed as nothing, and the header is
+  // where the lender learns that. Seeded into the node so its log does not say
+  // it again a line later.
+  const localNow = local ? await localStatus(config) : null;
+  if (localNow) seedLocalState(localNow);
+  const localModels = localNow?.models?.length ? localNow.models.join(", ") : "its models";
   let host = config.serverUrl;
   try { host = new URL(config.serverUrl).host; } catch { /* shown as written */ }
   const rows = [
@@ -1744,10 +1751,13 @@ async function cmdStart(args) {
       : me.renter?.donor ? ["Account", `${C.yellow}contributing, unpaid${C.reset} ${C.dim}· ${C.reset}${C.cyan}aile login${C.reset}${C.dim} to be paid${C.reset}`]
       : accounts.length ? ["Accounts", `${accounts.length} connected`]
       // "Serves nothing" is only true with no self-hosted model either.
-      : local ? ["Accounts", `${C.dim}none · serving your self-hosted model only${C.reset}`]
+      : localNow?.state === "up" ? ["Accounts", `${C.dim}none · serving your self-hosted model only${C.reset}`]
       : ["Accounts", `${C.yellow}none${C.reset} ${C.dim}· serves nothing until you run${C.reset} ${C.cyan}aile connect${C.reset}`],
     ["Relay", `subscription traffic, relayed blind ${C.dim}· ${config.maxConcurrent} streams at once${C.reset}`],
-    local ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}this machine reads those prompts${C.reset}`] : null,
+    !localNow ? null
+      : localNow.state === "up" ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}this machine reads those prompts${C.reset}`]
+      : localNow.state === "down" ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}not answering${C.reset} ${C.dim}· ${localModels} listed once it does${C.reset}`]
+      : ["Local AI", `${C.red}misconfigured${C.reset} ${C.dim}${localNow.reason}${C.reset}`],
     mcp.configError ? ["MCP", `${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`]
       : !mcp.declared.length ? null
       : mcp.runtime.ok ? ["MCP", `${mcp.declared.length} server${mcp.declared.length === 1 ? "" : "s"}`]
@@ -2158,9 +2168,13 @@ async function cmdLocal(args) {
       return;
     }
     console.log(`\n  Endpoint:  ${C.cyan}${config.localEndpoint}${C.reset}`);
+    const now = await localStatus(config);
+    console.log(`  Status:    ${now.state === "up" ? `${C.green}answering${C.reset}`
+      : now.state === "down" ? `${C.yellow}not answering${C.reset} ${C.dim}(${now.reason}) · listed once it does${C.reset}`
+      : `${C.red}misconfigured${C.reset} ${C.dim}${now.reason}${C.reset}`}`);
     const models = await discoverLocalModels(config);
     console.log(`  Models:    ${models.length ? models.join(", ") : `${C.yellow}none found${C.reset}`}`);
-    if (models.length) console.log(`  Buyers:    ${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
+    if (models.length && now.state === "up") console.log(`  Buyers:    ${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
     console.log(`  Privacy:   ${C.yellow}not blind${C.reset} ${C.dim}— requests run here, so this machine reads them${C.reset}\n`);
     return;
   }
@@ -2180,7 +2194,12 @@ async function cmdLocal(args) {
   console.log(`\n${C.green}Lending your self-hosted model${C.reset} ${C.dim}${endpoint}${C.reset}`);
 
   const models = await discoverLocalModels(res.value);
-  if (models.length) {
+  const now = await localStatus(res.value);
+  if (now.state === "down") {
+    // Named models used to be reported as advertised whether or not anything
+    // ran them; the node now lists them only while the endpoint answers.
+    console.log(`${C.yellow}Nothing answers there yet${C.reset} ${C.dim}(${now.reason}). ${models.length ? models.join(", ") : "Its models"} will be listed once it does.${C.reset}`);
+  } else if (models.length) {
     console.log(`${C.dim}Advertising: ${models.join(", ")}${C.reset}`);
     console.log(`${C.dim}Buyers send: ${C.reset}${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
   } else {

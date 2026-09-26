@@ -16,6 +16,7 @@ import fs from "node:fs";
 import { buildMcpCapability } from "../mcp/capabilities.js";
 import { MCP_CONFIG_FILE } from "../mcp/config.js";
 import { reapOrphans } from "../mcp/sandbox.js";
+import { localStatus } from "./local.js";
 import { logger } from "../config/logger.js";
 import { C } from "../cli/colors.js";
 import { sym } from "../cli/ui.js";
@@ -70,6 +71,51 @@ function closeReason(info) {
 const hostOf = (url) => { try { return new URL(url).host; } catch { return url; } };
 
 /**
+ * THE SELF-HOSTED MODEL IS LISTED ONLY WHILE SOMETHING ANSWERS FOR IT, and the
+ * node re-checks on this cadence — so starting Ollama after `aile start` lists
+ * the model within a minute, and stopping it unlists it, without a restart.
+ * Each change re-sends the hello, which the server answers with an account
+ * probe, so this is also the floor between two of those.
+ */
+const LOCAL_CHECK_MS = 60_000;
+
+const listNames = (models) => (models?.length ? models.join(", ") : "its models");
+
+/**
+ * The one line a CHANGE in the self-hosted model's state is worth, or null.
+ * `prev` is the last state reported (null before the first); `aile start`'s
+ * header seeds it, so the log does not repeat what the header just said.
+ */
+export function localTransition(prev, status, endpoint) {
+  const now = status?.state;
+  if (!now || now === "off" || now === prev) return null;
+  // "Nothing is listening" is the usual reason and the address says it; any
+  // other (a timeout, an unreachable host) is worth the words.
+  const where = hostOf(endpoint || "") + (status.reason && status.reason !== "nothing is listening" ? ` (${status.reason})` : "");
+  if (now === "up") {
+    return prev === null ? null
+      : `${C.green}${sym.ok}${C.reset} Local AI answering ${C.dim}· ${listNames(status.models)} listed · this machine reads those prompts${C.reset}`;
+  }
+  if (now === "down") {
+    return prev === "up"
+      ? `${C.yellow}${sym.warn}${C.reset} Local AI stopped answering ${C.dim}· ${where} · ${listNames(status.models)} unlisted until it's back${C.reset}`
+      : `${C.yellow}${sym.warn}${C.reset} Local AI not answering ${C.dim}· ${where} · ${listNames(status.models)} listed once it does${C.reset}`;
+  }
+  return `${C.red}${sym.fail}${C.reset} Local AI misconfigured ${C.dim}· ${status.reason}${C.reset}`;
+}
+
+/** What `aile start`'s header already said about the self-hosted model. */
+export function seedLocalState(status) {
+  if (status?.state && status.state !== "off") state.localState = status.state;
+}
+
+function noteLocal(status, config, log) {
+  const line = localTransition(state.localState, status, config.localEndpoint);
+  if (line) (status.state === "up" ? log.info : log.warn)(line);
+  state.localState = status.state === "off" ? null : status.state;
+}
+
+/**
  * How often the MCP declaration file is stat'd, and the floor between the
  * re-advertisements a change to it triggers.
  *
@@ -114,6 +160,10 @@ const state = {
   lostTimer: null,
   failSince: null,
   stillAt: 0,
+  // The self-hosted model's last reported state ("up" | "down" | "misconfigured").
+  localState: null,
+  localTimer: null,
+  localChecking: false,
 };
 
 /** The socket closed under a running node: start the quiet window. */
@@ -274,10 +324,15 @@ async function connectOnce(config) {
     // Built here rather than inside buildCapabilities so ONE runtime probe
     // answers both questions: what to advertise, and what the agent spawns with.
     const mcp = buildMcpCapability({ log });
+    // Checked here and handed down, so the log line and the advertisement are
+    // the same answer.
+    const local = await localStatus(config);
+    noteLocal(local, config, log);
     const capabilities = await buildCapabilities({
       nodeId,
       maxConcurrent: config.maxConcurrent,
       mcp,
+      local,
     });
 
     const agent = new RelayAgent({
@@ -312,6 +367,7 @@ async function connectOnce(config) {
     // Only once connected: a watcher on a node that never comes up has nothing
     // to re-advertise to, and the connect path already reads the file itself.
     watchMcpConfig(log);
+    watchLocal(log);
     state.attempt = 0;
     state.lastError = null;
     state.lastConnectedAt = new Date().toISOString();
@@ -449,6 +505,52 @@ async function readvertiseMcp(log) {
     : `[MCP] re-advertised: nothing is served${mcp.reason ? ` — ${mcp.reason}` : ""}`);
 }
 
+/**
+ * Re-check the self-hosted model every LOCAL_CHECK_MS while lending it, and
+ * re-advertise when it comes up or goes away. Idempotent; stopped with the node.
+ */
+function watchLocal(log) {
+  if (state.localTimer) return;
+  state.localTimer = setInterval(() => {
+    recheckLocal(log).catch((e) => log?.debug?.(`local re-check failed: ${e.message}`));
+  }, LOCAL_CHECK_MS);
+  if (state.localTimer.unref) state.localTimer.unref();
+}
+
+function unwatchLocal() {
+  if (state.localTimer) clearInterval(state.localTimer);
+  state.localTimer = null;
+}
+
+/** One re-check now. Exported so a test need not wait out LOCAL_CHECK_MS. */
+export async function recheckLocal(log = nodeLog(loadConfig().logLevel)) {
+  if (state.localChecking || state.stopped) return;
+  const config = loadConfig();
+  if (!config.localEnabled) return;
+  state.localChecking = true;
+  try {
+    const status = await localStatus(config);
+    const before = state.localState;
+    if (status.state === before) return;
+    noteLocal(status, config, log);
+    // Only a change in what is ADVERTISED needs a new hello: "down" and
+    // "misconfigured" both advertise nothing.
+    if ((before === "up") === (status.state === "up")) return;
+    const agent = state.agent;
+    if (!agent?.getStats?.().connected) return;   // the next connect advertises it
+    const mcp = buildMcpCapability({ log });
+    const capabilities = await buildCapabilities({
+      nodeId: getNodeId(),
+      maxConcurrent: config.maxConcurrent,
+      mcp,
+      local: status,
+    });
+    if (agent.readvertise(capabilities)) agent.mcpRuntime = mcp.runtime?.runtime || null;
+  } finally {
+    state.localChecking = false;
+  }
+}
+
 function scheduleReconnect() {
   if (state.stopped || state.retryTimer || state.fatal) return;
 
@@ -484,6 +586,7 @@ function scheduleReconnect() {
 export function stopRelayAgent(reason = "manual stop") {
   state.stopped = true;
   unwatchMcpConfig();
+  unwatchLocal();
   if (state.retryTimer) {
     clearTimeout(state.retryTimer);
     state.retryTimer = null;
@@ -497,6 +600,7 @@ export function stopRelayAgent(reason = "manual stop") {
   state.dropWhy = null;
   state.lostAnnounced = false;
   state.failSince = null;
+  state.localState = null;
   state.fatal = null;
   state.repaired = false;
   clearState();

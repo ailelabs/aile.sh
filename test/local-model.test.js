@@ -9,6 +9,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import net from "node:net";
 import {
   parseLocalEndpoint, resolveLocalTarget, discoverLocalModels, buildLocalCapability,
   isLocalAddress,
@@ -172,12 +173,20 @@ describe("capability advertisement", () => {
   });
 
   test("the advertisement states plainly that this path is not blind", async () => {
-    const cap = await buildLocalCapability(
-      { localEnabled: true, localEndpoint: "http://127.0.0.1:11434", localModels: "llama3" },
-    );
-    // A buyer must be able to tell the two kinds of capacity apart, so the flag
-    // travels with the capability rather than living only in documentation.
-    expect(cap.blind).toBe(false);
-    expect(cap.models).toEqual(["llama3"]);
+    // Something must answer there: a named model is listed only while its
+    // endpoint accepts a connection (see local-status.test.js).
+    const srv = net.createServer((c) => c.end());
+    await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+    try {
+      const cap = await buildLocalCapability(
+        { localEnabled: true, localEndpoint: `http://127.0.0.1:${srv.address().port}`, localModels: "llama3" },
+      );
+      // A buyer must be able to tell the two kinds of capacity apart, so the flag
+      // travels with the capability rather than living only in documentation.
+      expect(cap.blind).toBe(false);
+      expect(cap.models).toEqual(["llama3"]);
+    } finally {
+      await new Promise((r) => srv.close(r));
+    }
   });
 });

@@ -24,9 +24,16 @@ import { describe, expect, it, beforeEach, afterAll } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import net from "node:net";
 
 const CLI = path.join(import.meta.dirname, "..", "src", "cli", "index.js");
 const scratches = [];
+
+// A model server that ANSWERS: a named model is listed (and counted as
+// capacity) only while something accepts a connection at its endpoint.
+const modelServer = net.createServer((c) => c.end());
+await new Promise((r) => modelServer.listen(0, "127.0.0.1", r));
+const LOCAL = `http://127.0.0.1:${modelServer.address().port}`;
 
 /**
  * Deliberately interleaved: a key sits between two subscriptions, so grouping
@@ -101,6 +108,7 @@ beforeEach(() => {
 
 afterAll(() => {
   stub?.stop();
+  modelServer.close();
   for (const dir of scratches) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -200,7 +208,7 @@ describe("a self-hosted model is capacity too", () => {
     stub = stubServer({ accounts });
     return signedInData(stub.url, {
       localEnabled: true,
-      localEndpoint: "http://127.0.0.1:11434",
+      localEndpoint: LOCAL,
       localModels: "llama3,mistral",
     });
   };
@@ -208,7 +216,7 @@ describe("a self-hosted model is capacity too", () => {
   it("appears beside the accounts rather than behind its own command", async () => {
     const { stdout } = await run(["capacity"], { data: withLocal(MIXED) });
     expect(stdout).toMatch(/Self-hosted/);
-    expect(stdout).toContain("http://127.0.0.1:11434");
+    expect(stdout).toContain(LOCAL);
     expect(stdout).toContain("llama3");
   });
 
@@ -236,6 +244,21 @@ describe("a self-hosted model is capacity too", () => {
     // three and not four, or the footer contradicts the line above it.
     const data = signedInData(stub.url, {
       localEnabled: true, localEndpoint: "http://nope.invalid:11434",
+    });
+    const { stdout } = await run(["capacity"], { data });
+    expect(stdout).toMatch(/not serving/i);
+    expect(stdout).toMatch(/3 sources of capacity/);
+  }, 20_000);
+
+  it("does not count a named model as capacity while nothing answers at its endpoint", async () => {
+    // A stopped (or never-installed) Ollama with `localModels` set used to be
+    // listed as serving; the node now advertises it only while it answers.
+    const idle = net.createServer();
+    await new Promise((r) => idle.listen(0, "127.0.0.1", r));
+    const port = idle.address().port;
+    await new Promise((r) => idle.close(r));
+    const data = signedInData(stub.url, {
+      localEnabled: true, localEndpoint: `http://127.0.0.1:${port}`, localModels: "llama3",
     });
     const { stdout } = await run(["capacity"], { data });
     expect(stdout).toMatch(/not serving/i);
@@ -280,7 +303,7 @@ describe("nothing lent yet", () => {
 describe("aile local — how buyers reach it", () => {
   it("prints the local/ id buyers send, beside the raw id the node advertises", async () => {
     const data = signedInData(stub.url, { localModels: "llama3,mistral" });
-    const { stdout, code } = await run(["local", "http://127.0.0.1:11434"], { data });
+    const { stdout, code } = await run(["local", LOCAL], { data });
     expect(code).toBe(0);
     expect(stdout).toContain("Advertising: llama3, mistral");
     expect(stdout).toContain("local/llama3, local/mistral");
@@ -288,7 +311,7 @@ describe("aile local — how buyers reach it", () => {
 
   it("shows the same on the state view", async () => {
     const data = signedInData(stub.url, {
-      localEnabled: true, localEndpoint: "http://127.0.0.1:11434", localModels: "llama3",
+      localEnabled: true, localEndpoint: LOCAL, localModels: "llama3",
     });
     const { stdout } = await run(["local"], { data });
     expect(stdout).toContain("local/llama3");
@@ -319,13 +342,13 @@ describe("--json", () => {
     stub.stop();
     stub = stubServer({ accounts: [] });
     const data = signedInData(stub.url, {
-      localEnabled: true, localEndpoint: "http://127.0.0.1:11434", localModels: "llama3",
+      localEnabled: true, localEndpoint: LOCAL, localModels: "llama3",
     });
     const { stdout } = await run(["capacity", "--json"], { data });
     const { selfHosted } = JSON.parse(stdout);
     // A consumer that only reads `models` must still be able to see that this
     // capacity carries a different privacy property.
-    expect(selfHosted).toEqual({ endpoint: "http://127.0.0.1:11434", models: ["llama3"], blind: false });
+    expect(selfHosted).toEqual({ endpoint: LOCAL, models: ["llama3"], blind: false });
   });
 
   it("puts NOTHING but the JSON on stdout", async () => {
