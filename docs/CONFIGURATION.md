@@ -46,12 +46,13 @@ Changes take effect on the next `aile start`.
 | `reconnectMinMs` | `1000` | 250–60000 | Floor of the reconnect backoff. |
 | `reconnectMaxMs` | `60000` | 1000–3600000 | Ceiling of the reconnect backoff. |
 
-<Note title="Retired server addresses">
-Known-dead hosts are dropped from `serverUrl` on read rather than dialled, so an
-old install does not sit retrying an address that no longer exists. If a stale
-value is the problem, set it explicitly:
-`aile config serverUrl https://api.aile.sh`.
-</Note>
+> [!NOTE]
+> **Retired server addresses**
+>
+> Known-dead hosts are dropped from `serverUrl` on read rather than dialled, so an
+> old install does not sit retrying an address that no longer exists. If a stale
+> value is the problem, set it explicitly:
+> `aile config serverUrl https://api.aile.sh`.
 
 ## Self-hosted
 
@@ -64,12 +65,13 @@ Lending a model running on your own machine. Off unless you turn it on; see
 | `localEndpoint` | — | OpenAI-compatible base URL. Loopback or LAN addresses only. |
 | `localModels` | — | Comma-separated names to advertise. Blank asks the endpoint. |
 
-<Warning title="Names are forwarded verbatim">
-Buyers send `local/<name>`; Aile strips `local/` and passes the rest to your
-endpoint unchanged, so the names you advertise must be exactly the names your
-endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
-those requests will not resolve.
-</Warning>
+> [!WARNING]
+> **Names are forwarded verbatim**
+>
+> Buyers send `local/<name>`; Aile strips `local/` and passes the rest to your
+> endpoint unchanged, so the names you advertise must be exactly the names your
+> endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
+> those requests will not resolve.
 
 ## Streams
 
@@ -98,10 +100,11 @@ those requests will not resolve.
 |---|---|---|---|
 | `logLevel` | `info` | `silent`, `error`, `warn`, `info`, `debug` | How much `aile start` prints while running. |
 
-<Note title="Nothing here widens egress">
-No setting can add a host to the egress allowlist. `localEndpoint` is constrained
-to loopback and LAN precisely so it cannot become one.
-</Note>
+> [!NOTE]
+> **Nothing here widens egress**
+>
+> No setting can add a host to the egress allowlist. `localEndpoint` is constrained
+> to loopback and LAN precisely so it cannot become one.
 
 ---
 

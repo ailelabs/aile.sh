@@ -33,7 +33,8 @@ aile start      # run as a relay node
 
 Bare `aile` on a machine where nothing is set up yet starts a short first-run
 prompt. Once anything is set up (a sign-in, an API key, or a coding tool), it
-shows a few lines: your balance, your coding tools, and what you lend. Then, in a
+shows a few lines: your balance, your coding tools, and what you lend (with a
+served count only when some account is served through a machine). Then, in a
 terminal, a menu of likely next steps: arrows or a number, then enter; Esc or `q`
 quits. Off a terminal it prints the summary and exits, so a script never waits on
 it. `aile status` has the detail.
@@ -46,9 +47,10 @@ surprises people.
 - `--key=value` is always accepted.
 - `--key value` is accepted **unless** the flag is boolean. The boolean flags are
   `--insecure`, `--reset`, `--path`, `--help`, `--json`, `--paste`, `--browser`,
-  `--off`, `--yes`, `--verified`, `--free`, `--free-only`, `--nodeless` and
-  `--no-nodeless`. A value after one of those is read as a positional argument,
-  not as the flag's value.
+  `--off`, `--yes`, `--verified`, `--free`, `--free-only`, `--nodeless`,
+  `--no-nodeless`, `--all`, `--dry-run`, `--new-key`, `--remove`, `--revoke`,
+  `--keep-key`, `--fast`, `--tools`, `--keep-home` and `--debug`. A value after
+  one of those is read as a positional argument, not as the flag's value.
 - Everything else collects as positionals.
 
 ## Global options
@@ -60,12 +62,14 @@ These work on any command.
 | `--server <url>` | Point at a different relay for this one command. Overrides `serverUrl`. |
 | `--insecure` | Permit a plain `http://` server. Staging only; refused otherwise. |
 | `--json` | Machine-readable output. Supported on the read commands. |
+| `--yes` | Skip confirmations. |
 | `--help`, `-h` | The command overview. After a command (`aile lenders --help`), that command's examples and details. Help never runs the command or touches the network. |
 | `--version`, `-v` | Print the client version. |
 
 ## How output behaves
 
-- **Colour** only on a terminal, and never with `NO_COLOR` set.
+- **Colour** only on a terminal (or with `FORCE_COLOR`), and never with `NO_COLOR`
+  set.
 - **Marks** (✓ ✗ ❯ ●) where the terminal can draw them, and plain ASCII
   (`+ x > *`) where it may not, such as the classic Windows console window.
   `AILE_ASCII=1` forces ASCII anywhere.
@@ -99,7 +103,7 @@ It holds `config.json` (permissions `0600`), the machine id, and the node secret
 
 - **[Commands](./COMMANDS.md)**: every command, with its flags
 - **[Configuration](./CONFIGURATION.md)**: every `aile config` key, its default and range
-- **[Environment](./ENVIRONMENT.md)**: the four environment variables the client reads
+- **[Environment](./ENVIRONMENT.md)**: the environment variables the client reads
 
 ---
 

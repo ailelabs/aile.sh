@@ -1092,10 +1092,10 @@ async function cmdUsage(args) {
  * offering one would imply a control that does not exist.
  *
  * A margin is a multiplier on the provider's own list price, 0 (free) to 1 (list);
- * nobody sells above retail. A per-model override replaces that with dollars per
- * million tokens, also capped at list. `disabled` is deliberately separate from
- * price on the server, so clearing a price cannot quietly re-enable a model the
- * lender turned off.
+ * nobody sells above retail, and it is the ONLY price a lender sets — globally, or
+ * per model. Every surface bills list × margin, per-unit models included, which
+ * sell by default. `disabled` is deliberately separate from price on the server,
+ * so clearing a margin cannot quietly re-enable a model the lender turned off.
  */
 async function cmdRates(args) {
   banner();
@@ -1108,38 +1108,35 @@ async function cmdRates(args) {
   const verb = String(args._[1] || "").toLowerCase();
   const model = args._[2] ? String(args._[2]) : null;
 
+  // Refused here, before anything is sent: the server 400s any dollar price, and
+  // silently dropping the flag would leave a lender believing it took.
+  if (args.in !== undefined || args.out !== undefined) {
+    die("Dollar prices are retired — use --model-margin (0 = free, 1 = list).");
+  }
+
   // --margin is a change, not a subcommand: `aile rates --margin 0.9` reads better
   // than `aile rates margin set 0.9` and there is only ever one global multiplier.
   if (args.margin !== undefined) {
     const margin = checkMargin(args.margin, "--margin");
     await callRates(() => api.setMargin({ margin, ...opts }));
-    console.log(`\n${C.green}Margin set to ${margin}.${C.reset} ${C.dim}Applies to every model with no price of its own.${C.reset}\n`);
+    console.log(`\n${C.green}Margin set to ${marginText(margin)}.${C.reset} ${C.dim}Applies to every model with no margin of its own.${C.reset}\n`);
     return;
   }
 
   if (verb === "set") {
-    if (!model) die("Which model?", "Try `aile rates set claude-opus-5 --in 3 --out 15`.");
-    const inUsd = args.in !== undefined ? Number(args.in) : null;
-    const outUsd = args.out !== undefined ? Number(args.out) : null;
-    const margin = args["model-margin"] !== undefined ? checkMargin(args["model-margin"], "--model-margin") : null;
-    if (inUsd === null && outUsd === null && margin === null) {
-      die(
-        "Set what?",
-        "`--in` and `--out` are dollars per million tokens; `--model-margin` multiplies the "
-        + "provider's list price instead. `aile rates clear <model>` removes an override.",
-      );
+    if (!model) die("Which model?", "Try `aile rates set claude-opus-5 --model-margin 0.8`.");
+    if (args["model-margin"] === undefined) {
+      die("Set what?", "Try `aile rates set <model> --model-margin 0.8` (0 = free, 1 = list).");
     }
-    await callRates(() => api.setModelPrice({ model, inUsd, outUsd, margin, ...opts }));
-    console.log(`\n${C.green}Set.${C.reset} ${model} ${C.dim}now prices at${C.reset}`
-      + (inUsd !== null ? ` ${C.bold}$${inUsd}${C.reset}${C.dim}/Mtok in${C.reset}` : "")
-      + (outUsd !== null ? ` ${C.bold}$${outUsd}${C.reset}${C.dim}/Mtok out${C.reset}` : "")
-      + (margin !== null ? ` ${C.bold}×${margin}${C.reset}${C.dim} of list${C.reset}` : "") + "\n");
+    const margin = checkMargin(args["model-margin"], "--model-margin");
+    await callRates(() => api.setModelMargin({ model, margin, ...opts }));
+    console.log(`\n${C.green}Set.${C.reset} ${model} ${C.dim}now sells at${C.reset} ${C.bold}${marginText(margin)}${C.reset}\n`);
     return;
   }
 
   if (verb === "clear") {
     if (!model) die("Which model?", "Try `aile rates clear claude-opus-5`.");
-    await callRates(() => api.clearModelPrice({ model, ...opts }));
+    await callRates(() => api.clearModelMargin({ model, ...opts }));
     console.log(`\n${C.green}Cleared.${C.reset} ${model} ${C.dim}is back on your global margin.${C.reset}\n`);
     return;
   }
@@ -1166,30 +1163,22 @@ async function cmdRates(args) {
 
   const d = p.defaults || {};
   console.log(`\n${C.bold}What you charge${C.reset}\n`);
-  // An untouched account is on the deployment default, and saying so beats a bare
-  // number. `marginSet` tells "never set" from a deliberate 0 (free); an older
-  // server without it sent 0 for "never set".
-  const usingDefault = p.marginSet === undefined ? !p.margin : !p.marginSet;
-  console.log(`  Margin  ${C.bold}×${usingDefault ? (d.margin ?? 1) : p.margin}${C.reset}`
-    + (usingDefault ? `  ${C.dim}(the default — you have not set one)${C.reset}` : ""));
+  // `marginSet` tells "never set" from a deliberate 0, which is free. When it is
+  // false the server has already put the deployment default in `margin`.
+  console.log(`  Margin  ${C.bold}${marginText(p.margin)}${C.reset}`
+    + (p.marginSet ? "" : `  ${C.dim}(the default — you have not set one)${C.reset}`));
   console.log(`  ${C.dim}A multiplier on each provider's own list price.${C.reset}`);
   if (d.min !== undefined && d.max !== undefined) {
-    console.log(`  ${C.dim}Allowed: ${d.min} to ${d.max}${d.maxUsdPerMtok ? ` · at most $${d.maxUsdPerMtok} per million tokens` : ""}${C.reset}`);
+    console.log(`  ${C.dim}Allowed: ${d.min} to ${d.max}${C.reset}`);
   }
 
-  const models = p.models || {};
-  const names = Object.keys(models).sort();
-  console.log(`\n  ${C.bold}Per-model prices${C.reset} ${C.dim}(${names.length})${C.reset}`);
+  const margins = p.modelMargins || {};
+  const names = Object.keys(margins).sort();
+  console.log(`\n  ${C.bold}Per-model margins${C.reset} ${C.dim}(${names.length})${C.reset}`);
   if (!names.length) {
     console.log(`  ${C.dim}None — every model follows the margin above.${C.reset}`);
   } else {
-    for (const m of names) {
-      const v = models[m] || {};
-      const bits = [];
-      if (v.in !== undefined && v.in !== null) bits.push(`$${v.in} in`);
-      if (v.out !== undefined && v.out !== null) bits.push(`$${v.out} out`);
-      console.log(`  ${C.cyan}${m}${C.reset}  ${C.dim}${bits.join(" · ") || "override"}${C.reset}`);
-    }
+    for (const m of names) console.log(`  ${C.cyan}${m}${C.reset}  ${marginText(margins[m])}`);
   }
 
   const off = Array.isArray(p.disabled) ? p.disabled : [];
@@ -1199,18 +1188,33 @@ async function cmdRates(args) {
   } else {
     for (const m of off) console.log(`  ${C.yellow}${m}${C.reset}`);
   }
+  console.log(`  ${C.dim}Per-unit models with a published list sell at list × margin by default; ${C.reset}`
+    + `${C.cyan}aile rates off <model>${C.reset}${C.dim} stops one.${C.reset}`);
 
   console.log(`\n${C.dim}Change it:  ${C.reset}${C.cyan}aile rates --margin 0.9${C.reset}`);
-  console.log(`${C.dim}One model:  ${C.reset}${C.cyan}aile rates set <model> --in 3 --out 15${C.reset}`);
+  console.log(`${C.dim}One model:  ${C.reset}${C.cyan}aile rates set <model> --model-margin 0.8${C.reset}`);
   console.log(`${C.dim}Stop one:   ${C.reset}${C.cyan}aile rates off <model>${C.reset}\n`);
+}
+
+/**
+ * A margin with what it means: `×0.9 (10% below list)`, `×1 (list price)`,
+ * `×0 (free)`. The percentage is rounded to two places so float noise
+ * (1 − 0.9 = 0.0999…) never reaches the screen.
+ */
+function marginText(m) {
+  const n = Number(m);
+  if (!Number.isFinite(n)) return String(m);
+  if (n === 0) return "×0 (free)";
+  if (n === 1) return "×1 (list price)";
+  return `×${n} (${Number(((1 - n) * 100).toFixed(2))}% below list)`;
 }
 
 /**
  * Run a pricing write and let the SERVER's refusal speak.
  *
- * The bounds live on the server (`min`/`max`/`maxUsdPerMtok`) and it returns a
- * sentence naming the one that was crossed. Re-deriving that here would mean two
- * copies of the limits, and the copy in the client is the one that goes stale.
+ * The bounds live on the server (`min`/`max`) and it returns a sentence naming
+ * the one that was crossed. Re-deriving that here would mean two copies of the
+ * limits, and the copy in the client is the one that goes stale.
  */
 async function callRates(run) {
   try {
@@ -1223,7 +1227,7 @@ async function callRates(run) {
 /**
  * A margin, refused here when it is outside 0–1 so a markup never reaches the
  * wire. The one bound worth copying: it is the marketplace's rule (at or below
- * retail), not a tunable. The dollar caps stay the server's.
+ * retail), not a tunable. Anything finer stays the server's to refuse.
  */
 function checkMargin(raw, flag) {
   const m = Number(raw);

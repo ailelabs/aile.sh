@@ -3,7 +3,8 @@
 
 # Environment variables
 
-The client reads four variables in normal use, plus two that only matter for one
+The client reads four variables in normal use. A few more change only how it
+prints, two reach a relay behind Cloudflare Access, and three matter for one
 provider.
 
 | Variable | Effect |
@@ -11,7 +12,7 @@ provider.
 | `AILE_SERVER_URL` | Default relay server. Overridden by the `serverUrl` config key only if that key is explicitly set, and by `--server` always. |
 | `AILE_DATA_DIR` | Override the whole state directory (`config.json`, machine id, node secret). |
 | `AILE_TOKEN` | Account token for `aile login` and `aile register`. The non-interactive path. |
-| `AILE_NO_UPDATE_CHECK` | Set to `1` to silence the "newer version available" notice. |
+| `AILE_NO_UPDATE_CHECK` | Set to `1` to silence the "newer version available" notice. `NO_UPDATE_NOTIFIER` and `CI` do the same. |
 
 ## Precedence
 
@@ -58,6 +59,28 @@ AILE_NO_MACHINE_LABEL=1 aile login
 ```
 
 The approval page then identifies the request only by its code.
+
+## Output
+
+| Variable | Effect |
+|---|---|
+| `NO_COLOR` | No colour, whatever its value (unless empty). Beats `FORCE_COLOR`. |
+| `FORCE_COLOR` | Colour even off a terminal, unless it is `0` or empty. |
+| `AILE_ASCII` | Set to `1` for plain ASCII marks instead of ✓ ✗ ❯ ●. |
+| `AILE_NO_SPINNER` | Set to `1` to turn off spinners. |
+| `AILE_DEBUG` | Set to `1` to print the full error behind a one-line failure message. |
+
+## Cloudflare Access
+
+For a relay you run behind Cloudflare Access. The client sends both as Access's
+service-token headers on every call to the relay, and sends neither unless both
+are set. The public aile.sh relay should never ask for them. They are read from the
+environment only, never from `config.json`.
+
+| Variable | Effect |
+|---|---|
+| `CF_ACCESS_CLIENT_ID` | Service token client id. |
+| `CF_ACCESS_CLIENT_SECRET` | Service token client secret. |
 
 ## GitLab Duo
 

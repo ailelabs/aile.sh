@@ -169,14 +169,14 @@ export const COMMANDS = [
   {
     name: "rates", group: "lend", summary: "what you charge, and what you will not serve",
     examples: [
-      ["aile rates", "margin, per-model prices, what is off"],
+      ["aile rates", "margin, per-model margins, what is off"],
       ["aile rates --margin 0.9", "0 (free) to 1 (list price), on every model"],
-      ["aile rates set <model> --in 3 --out 15", "dollars per million tokens, up to list"],
-      ["aile rates clear <model>", "back to the margin"],
+      ["aile rates set <model> --model-margin 0.8", "a margin for one model"],
+      ["aile rates clear <model>", "back to the global margin"],
       ["aile rates off <model>", "stop serving one model"],
       ["aile rates on <model>", "serve it again"],
     ],
-    notes: ["Prices are per model, not per account: two keys of one provider share a price sheet. `aile price <model>` is the other direction — what a request would COST you at everyone else's rates."],
+    notes: ["Margins are per model, not per account: two keys of one provider share a price sheet. `aile price <model>` is the other direction — what a request would COST you at everyone else's rates."],
   },
   {
     name: "disconnect", group: "lend", summary: "remove a connected account",

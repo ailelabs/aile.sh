@@ -242,12 +242,13 @@ echo "$KEY" | aile connect groq --key -
 Without a terminal and without `--key`, the client declines rather than hanging
 on a stdin nobody is writing to.
 
-<Note title="Several accounts of one provider">
-Personal and work subscriptions have separate quotas, so both can earn. Use
-`--label` to name them. Use `--account` when the provider identifies nothing
-itself. Without it the second link overwrites the first. Use `--replace <n>` to
-rotate a credential in place. A re-pasted API key already rotates onto its own row.
-</Note>
+> [!NOTE]
+> **Several accounts of one provider**
+>
+> Personal and work subscriptions have separate quotas, so both can earn. Use
+> `--label` to name them. Use `--account` when the provider identifies nothing
+> itself. Without it the second link overwrites the first. Use `--replace <n>` to
+> rotate a credential in place. A re-pasted API key already rotates onto its own row.
 
 ### accounts
 
@@ -290,9 +291,17 @@ aile retest
 aile retest 3
 ```
 
-This updates the **live** half of an account's status (`works` / `failing` /
+Each account prints `works`, `rejected` or `no answer` (no healthy egress to test
+through), with the server's reason, e.g. `refused-on-serve` for a key a provider
+refused on a real request, which a passing check cannot clear.
+
+This updates the **live** half of an account's status (`working` / `failing` /
 `unchecked`). It cannot change the identity half. See
 [Verification](https://aile.sh/docs/concepts/verification).
+
+An API key the provider refused on a real request reads `rejected`
+(`refused-on-serve`) even when the key check passes. It clears once a request on
+that key succeeds, or when you re-link it.
 
 ### usage
 
@@ -313,23 +322,24 @@ aile nodeless 1 on
 aile nodeless 1 off
 ```
 
-<Warning title="This removes your kill switch">
-With nodeless on, turning your node off no longer stops the account. Only
-`aile nodeless <n> off` does. `on` is refused for a subscription by the CLI, not
-the relay; the web dashboard can turn it on. See [Nodeless](https://aile.sh/docs/lend/nodeless).
-</Warning>
+> [!WARNING]
+> **This removes your kill switch**
+>
+> With nodeless on, turning your node off no longer stops the account. Only
+> `aile nodeless <n> off` does. `on` is refused for a subscription by the CLI, not
+> the relay; the web dashboard can turn it on. See [Nodeless](https://aile.sh/docs/lend/nodeless).
 
 ### rates
 
-What you charge, and what you will not serve. Prices are per **(lender, model)**,
-never per account. Two keys for one provider share one price sheet, which is why
-no `rates` command takes an account number.
+What you charge, and what you will not serve. You set only a margin: a multiplier
+on each model's published list price, `0` (free) to `1` (list). Margins are per
+**(lender, model)**, never per account. Two keys for one provider share one price
+sheet, which is why no `rates` command takes an account number.
 
 ```bash
-aile rates                                       # margin, overrides, disabled models, bounds
+aile rates                                       # margin, per-model margins, disabled models, bounds
 aile rates --margin 0.9                          # 0 (free) to 1 (list price), on every model
-aile rates set claude-opus-5 --in 3 --out 15     # dollars per million tokens, up to list
-aile rates set claude-opus-5 --model-margin 0.8  # a multiplier for one model instead
+aile rates set claude-opus-5 --model-margin 0.8  # a margin for one model
 aile rates clear claude-opus-5                   # back to the global margin
 aile rates off claude-opus-5                     # stop serving one model
 aile rates on claude-opus-5                      # serve it again
@@ -338,17 +348,21 @@ aile rates on claude-opus-5                      # serve it again
 | Flag | What it does |
 |---|---|
 | `--margin <x>` | Global multiplier on list price, `0` (free) to `1` (list). Above `1` is refused. |
-| `--in <usd>` | Input price, dollars per million tokens (with `set`). At most list. |
-| `--out <usd>` | Output price, dollars per million tokens (with `set`). At most list. |
-| `--model-margin <x>` | Per-model multiplier instead of an absolute price (with `set`), `0` to `1`. |
+| `--model-margin <x>` | Per-model multiplier on list price (with `set`), `0` to `1`. |
 
-`disabled` is kept separate from price, so clearing a price never re-enables a
+Dollar prices are retired, and `--in`/`--out` are refused (aile.sh 1.1.6 and later).
+A per-unit model (images, audio, video, …) with a published list sells at
+list × margin by default; `aile rates off <model>` stops one. A model with no
+list price is not sold.
+
+`disabled` is kept separate from price, so clearing a margin never re-enables a
 model you turned off.
 
-<Tip title="rates is not price">
-`aile rates` sets what **you** charge. `aile price` quotes what a request would
-**cost you** to buy. The names are deliberately different.
-</Tip>
+> [!TIP]
+> **rates is not price**
+>
+> `aile rates` sets what **you** charge. `aile price` quotes what a request would
+> **cost you** to buy. The names are deliberately different.
 
 ### disconnect
 
@@ -381,11 +395,27 @@ addresses**. A public value would turn the node into an open proxy.
 Buyers send `local/<model>`. The relay strips `local/`, so your endpoint sees the
 id it advertised.
 
-<Warning title="Self-hosted traffic is not blind">
-A local model runs on your machine, so your machine reads the prompts it answers.
-Subscription and API-key traffic are unaffected and stay blind. The client repeats
-this at `aile local`, `aile capacity`, `aile status` and `aile start`.
-</Warning>
+> [!WARNING]
+> **Self-hosted traffic is not blind**
+>
+> A local model runs on your machine, so your machine reads the prompts it answers.
+> Subscription and API-key traffic are unaffected and stay blind. The client repeats
+> this at `aile local`, `aile capacity`, `aile status` and `aile start`.
+
+### mcp
+
+Lend an MCP server running on this machine, declared in `mcp-servers.json` next
+to your config. See [Lend via MCP](https://aile.sh/docs/lend/mcp).
+
+```bash
+aile mcp              # what is declared, and whether it can run
+aile mcp check        # validate the file, print the exact argv
+aile mcp test <id>    # start it here and list its tools
+aile mcp path         # where mcp-servers.json lives
+```
+
+Each rented session runs in its own throwaway container. With no sandbox there is
+no lending: there is no unsandboxed fallback.
 
 ### start
 
@@ -419,7 +449,7 @@ aile status --json
 
 Reads the lock file, so it can report a relay running in another process.
 `--json` returns one object: `machine`, `server`, `config`, `signedIn`,
-`account`, `accounts`, `served`, `balance`, `relay`, `key` (masked), `tools`,
+`account`, `accountError`, `accounts`, `served`, `balance`, `relay`, `key` (masked), `tools`,
 `notSetUp` and `settingsChanged`.
 
 ### stats
@@ -482,17 +512,19 @@ first, ties to the least-busy machine. The top row is the machine your next
 request goes to. `--sort` asks for a reading order instead, and the footer then
 says so.
 
-<Tip title="Five of these have a header twin">
-`--max-price`, `--verified`, `--provider`, `--seller` and `--node` map to
-`x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender` and
-`x-aile-node`, so a choice you make here is one you can act on in a request. See
-[Headers](https://aile.sh/docs/reference/headers). **`--seller` is the person; `--node` is the box.**
-</Tip>
+> [!TIP]
+> **Five of these have a header twin**
+>
+> `--max-price`, `--verified`, `--provider`, `--seller` and `--node` map to
+> `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender` and
+> `x-aile-node`, so a choice you make here is one you can act on in a request. See
+> [Headers](https://aile.sh/docs/reference/headers). **`--seller` is the person; `--node` is the box.**
 
 A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
 `local/llama3`), or a bare id with `x-aile-provider`, which names the provider and
-sends the id upstream as written. A bare id alone is a 400. `--model` here and
-`aile price` still take bare ids.
+sends the id upstream as written. A bare id alone is a 400, except on a key pinned
+to one provider, or from Claude Code or the Codex CLI, which route it to `claude`
+and `codex`. `--model` here and `aile price` still take bare ids.
 
 ### price
 
@@ -515,8 +547,10 @@ aile price gpt-5.2 --in 3000
 Output is priced at the `max_tokens` your request **authorises**, not at the reply
 that comes back. That field is the one lever you hold over your bill. The default
 ceiling is `quoteMaxTokens` (4096). A key's balance is billed up to the cap sent
-upstream, which tools, thinking, an unset `max_tokens` or a route that sends no cap
-(codex) can put above `aile price`.
+upstream (the model's context window when none is sent), which tools, thinking, an
+unset `max_tokens` or a route that sends no cap (codex) can put above `aile price`.
+An x402 payment is the quote itself: a request naming no cap is sent the one it was
+priced at, and a route that sends no cap (codex) is refused.
 
 ### spend
 

@@ -10,6 +10,27 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-09-26
+
+### Changed
+
+- `aile rates` is margin-only, matching the server: a lender sets a margin from
+  0 (free) to 1 (list price), globally or per model, and every model bills
+  list × margin. `aile rates set <model>` takes `--model-margin` only.
+- `aile rates` lists your per-model margins, prints each margin with what it
+  means (`×0.9 (10% below list)`, `×0 (free)`), and says that per-unit models
+  with a published list sell at list × margin by default until you turn one off.
+
+### Removed
+
+- `--in` and `--out` on `aile rates set`. Dollar prices are retired, and passing
+  either is refused before anything is sent.
+
+### Fixed
+
+- `aile rates` no longer shows "None" under per-model margins you have set, or
+  a dollar cap that no longer applies.
+
 ## [1.1.5] - 2026-09-26
 
 ### Fixed

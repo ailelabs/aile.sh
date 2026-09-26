@@ -319,23 +319,23 @@ export const api = {
    */
   providersUsage: (opts) => call("/providers/usage", opts),
 
-  /** The caller's own lender pricing: margin, per-model overrides, disabled models. */
+  /** The caller's own lender pricing: margin, per-model margins, disabled models. */
   pricing: (opts) => call("/pricing", opts),
 
-  /** The global multiplier applied to every model with no override of its own. */
+  /** The global multiplier applied to every model with no margin of its own. */
   setMargin: ({ margin, ...opts }) =>
     call("/pricing", { ...opts, method: "PATCH", body: { margin } }),
 
   /**
-   * A per-model price. Dollars per million tokens is the primary form; `margin`
-   * alone is the fallback. All-null clears the override — which is a different
-   * operation from `clearModelPrice` only in that it goes through the same route.
+   * A per-model margin, 0 (free) to 1 (list). The body is `{model, margin}` and
+   * nothing else: the server refuses any `inUsd`/`outUsd`, null included, since
+   * dollar prices were retired.
    */
-  setModelPrice: ({ model, inUsd = null, outUsd = null, margin = null, ...opts }) =>
-    call("/pricing/model", { ...opts, method: "PUT", body: omitAbsent({ model, inUsd, outUsd, margin }) }),
+  setModelMargin: ({ model, margin, ...opts }) =>
+    call("/pricing/model", { ...opts, method: "PUT", body: { model, margin } }),
 
-  /** Drop a per-model override, returning that model to the global margin. */
-  clearModelPrice: ({ model, ...opts }) =>
+  /** Drop a per-model margin, returning that model to the global margin. */
+  clearModelMargin: ({ model, ...opts }) =>
     call(`/pricing/model/${encodeURIComponent(model)}`, { ...opts, method: "DELETE" }),
 
   /**
