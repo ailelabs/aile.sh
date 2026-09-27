@@ -94,6 +94,17 @@ Lending a model running on your own machine. Off unless you turn it on; see
 |---|---|---|---|
 | `quoteMaxTokens` | `4096` | 1–1000000 | Output ceiling `aile price` assumes. An estimate only; **never sent** with a request. |
 
+## Wallet
+
+Read only by your optional own wallet (`aile wallet own`). Nothing here is sent
+to the server.
+
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `walletNetwork` | `mainnet` | `mainnet`, `devnet` | Solana network your own wallet uses. Env: `AILE_SOLANA_NETWORK`. |
+| `solanaRpc` | *(empty)* | URL | Solana RPC for your own wallet. Empty means the public endpoint, which is rate-limited. Hidden in `aile config` output, because providers put the API key in the URL. Env: `AILE_SOLANA_RPC`. |
+| `walletMaxCents` | `50` | 1–100000 | Largest single payment or USDC send your own wallet signs, in US cents. `--max-usd` overrides it for one command. |
+
 ## Output
 
 | Key | Default | Values | What it does |

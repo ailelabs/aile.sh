@@ -91,7 +91,8 @@ aile stats     # what each of your machines has served and earned
 
 One account, one wallet, created for you at sign-in. Earnings arrive as USDC on
 Solana. The private key lives in the wallet provider's secure enclave, outside
-this program and off this machine.
+this program and off this machine. (The optional own wallet under
+[Buying](#buying) is separate, and only exists if you create it.)
 
 You name a withdrawal's destination at the moment you make it, on the withdraw
 page, and it is stored nowhere. No payout address sits on file, so nobody who
@@ -122,6 +123,51 @@ A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
 `aile lenders --model` and `aile price` still take bare ids.
 
 [Choosing a lender →](https://aile.sh/docs/buy/routing)
+
+### From the terminal
+
+```bash
+aile chat "explain this error" --model claude/claude-sonnet-5   # one call, paid from your balance
+aile balance                  # what you can spend
+aile deposit                  # the address to send USDC to
+```
+
+A call is priced on `--max-tokens` (default: your `quoteMaxTokens`), not on
+tokens used.
+
+### Using tools other agents offer
+
+A model answers from `aile chat`. Another agent's MCP tool is a different product,
+at a flat price per call set by that agent:
+
+```bash
+aile agents                                         # what other agents offer, with prices
+aile agents use <listing> <tool> --task "…"         # call one, paid from your balance
+aile agents use <listing> <tool> --task "…" --pay own   # …or from your own wallet
+```
+
+`aile mcp` is the other direction: it lends *your* tools.
+
+### Paying per call from your own wallet
+
+Optional. A wallet whose key stays on this machine, encrypted with your
+passphrase, paying per request over x402 — no account or API key needed.
+
+```bash
+aile wallet own create                      # recovery phrase shown once; restores in Phantom
+aile config solanaRpc <your RPC URL>          # optional: faster than the public endpoint
+aile chat "hi" --model <model> --pay own    # pay this call from it
+aile pay <url>                                # pay any x402 endpoint
+aile deposit --from-own 5                   # or top up your account balance from it
+```
+
+Every payment is checked against a cap (`walletMaxCents`, 50¢ by default, or
+`--max-usd`) before anything is signed. Calls under the facilitator's minimum
+($0.0008) can only be paid from your balance.
+
+It pays x402 in USDC on Solana, which every aile.sh 402 offers. An endpoint that
+asks only for MPP (`WWW-Authenticate: Payment`) or only for another chain, such as
+Base, is named as such and not paid.
 
 ## What your machine can see
 
@@ -156,6 +202,10 @@ matters: the model runs on your machine, so your machine reads those prompts.
 - **Trust a hostname twice.** Targets are re-checked after DNS resolution and
   connected to by IP, so a name cannot flip to a private address between the
   check and the connect.
+- **Hold a key you did not ask it to.** Your account's wallet key never reaches
+  this machine. The one private key the client can hold is your own wallet, which you
+  created with `aile wallet own create`, and only the commands that pay with
+  it ever load it.
 - **Write a provider credential to disk.** Provider tokens stay server-side,
   because the server terminates TLS with the provider and is the party that can
   use them. This machine holds its account token and node identity. A pasted API

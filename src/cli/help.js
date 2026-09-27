@@ -73,7 +73,7 @@ export const COMMANDS = [
 
   // --- Buying ----------------------------------------------------------------
   {
-    name: "lenders", aliases: ["market"], group: "buy", summary: "who is lending, and what they charge",
+    name: "lenders", aliases: ["market"], group: "use", summary: "who is lending models, and what they charge",
     examples: [
       ["aile lenders", "everyone online, cheapest first"],
       ["aile lenders --model gpt-5.2", "with what each would charge for it"],
@@ -96,7 +96,7 @@ export const COMMANDS = [
     ],
   },
   {
-    name: "price", aliases: ["quote"], group: "buy", summary: "what one request would cost, at each rate",
+    name: "price", aliases: ["quote"], group: "use", summary: "what one model request would cost, at each rate",
     examples: [
       ["aile price gpt-5.2", "at each lender's rate"],
       ["aile price gpt-5.2 --max-tokens 1024", "what the NEXT one would cost at that output ceiling"],
@@ -108,8 +108,61 @@ export const COMMANDS = [
     ],
   },
   {
-    name: "spend", group: "buy", summary: "what each lender has cost you",
+    name: "spend", group: "use", summary: "what each model lender has cost you",
     examples: [["aile spend", "your buying: what each lender charged you"], ["aile spend --json", "the same, for a script"]],
+  },
+  {
+    name: "chat", aliases: ["ask"], group: "use", summary: "call an AI model once, paid per request",
+    examples: [
+      ["aile chat \"explain this error\" --model claude/claude-sonnet-5", "paid from your balance, with your API key"],
+      ["git diff | aile chat - --model codex/gpt-5.5 --system \"review this\"", "the prompt from stdin"],
+      ["aile chat \"hi\" --model <m> --pay own", "paid per call from your own wallet — no account needed"],
+      ["aile chat \"hi\" --model <m> --max-tokens 800", "a lower ceiling is a lower price"],
+      ["aile chat \"hi\" --model <m> --anthropic", "send it in Anthropic's format (/v1/messages)"],
+    ],
+    notes: [
+      "The price is quoted on --max-tokens (default: your quoteMaxTokens setting, the same number `aile price` uses), not on tokens used.",
+      "This calls an AI model. To call a tool another agent offers, use `aile agents`.",
+      "--pay auto (the default) uses your balance, and your own wallet only when the balance comes up short. A call under the facilitator's minimum ($0.0008) can only be paid from the balance.",
+    ],
+  },
+  {
+    name: "agents", group: "use", summary: "find tools other agents offer, and call one",
+    examples: [
+      ["aile agents", "what other agents offer right now, with prices"],
+      ["aile agents summarize", "only listings matching a word"],
+      ["aile agents use <listing> <tool> --task \"…\"", "call one tool, paid from your balance"],
+      ["aile agents use <listing> <tool> --task \"…\" --pay own", "…or per call from your own wallet"],
+      ["aile agents use <listing> <tool> --args '{\"q\":1}' --task \"…\"", "the tool's own parameters, as JSON"],
+    ],
+    notes: [
+      "A flat price per call, set by the agent that lists the tool. For an AI model instead, use `aile chat`.",
+      "The task text and arguments go to another agent — never send a secret you would not show a stranger.",
+    ],
+  },
+  {
+    name: "balance", group: "wallet", summary: "what you can spend: your account, and your own wallet",
+    examples: [["aile balance", "spendable balance, and your own wallet if you made one"], ["aile balance --json", "the same, for a script"]],
+  },
+  {
+    name: "deposit", aliases: ["topup", "top-up"], group: "wallet", summary: "add funds to your account",
+    examples: [
+      ["aile deposit", "the address to send USDC to, and the card / QR page"],
+      ["aile deposit --from-own 5", "send 5 USDC from your own wallet to your account"],
+    ],
+    notes: ["USDC sent to the address counts as soon as it lands. SOL, USDT and $AILE are converted to USDC for you."],
+  },
+  {
+    name: "pay", group: "wallet", summary: "pay any x402 endpoint from your own wallet",
+    examples: [
+      ["aile pay https://example.com/paid", "GET it, paying what its 402 asks"],
+      ["aile pay <url> --method POST --body '{\"q\":1}'", "with a JSON body"],
+      ["aile pay <url> --max-usd 0.10", "refuse anything over 10 cents"],
+    ],
+    notes: [
+      "Checked against your cap (walletMaxCents, or --max-usd) before anything is signed.",
+      "Pays x402 in USDC on Solana. A 402 that offers only MPP, or only another chain, is named rather than paid.",
+    ],
   },
 
   // --- Lending ---------------------------------------------------------------
@@ -191,14 +244,17 @@ export const COMMANDS = [
     notes: ["This traffic is not blind — it runs on your machine, so your machine reads those prompts."],
   },
   {
-    name: "mcp", group: "lend", summary: "lend an MCP server running on this machine",
+    name: "mcp", group: "lend", summary: "lend your own MCP tools to other agents, from this machine",
     examples: [
       ["aile mcp", "what is declared, and whether it can run"],
       ["aile mcp check", "validate the file, print the exact argv"],
       ["aile mcp test <id>", "start it here and list its tools"],
       ["aile mcp path", "where mcp-servers.json lives"],
     ],
-    notes: ["Declared in mcp-servers.json next to your config. Each rented session runs in its own throwaway container: read-only root, no host filesystem, no network unless you name hosts. No sandbox, no lending — there is no unsandboxed fallback."],
+    notes: [
+      "This LENDS your own MCP tools to other agents. To USE tools other agents offer, run `aile agents`. To give an agent aile's own tools (models, other agents' tools, your balance), add the remote server: `claude mcp add --transport http aile https://api.aile.sh/mcp`.",
+      "Declared in mcp-servers.json next to your config. Each rented session runs in its own throwaway container: read-only root, no host filesystem, no network unless you name hosts. No sandbox, no lending — there is no unsandboxed fallback.",
+    ],
   },
   {
     name: "start", group: "lend", summary: "run this machine as a relay node",
@@ -214,9 +270,18 @@ export const COMMANDS = [
     examples: [["aile stats", "requests served and earned, per machine"], ["aile stats --json", "the same, for a script"]],
   },
   {
-    name: "wallet", aliases: ["payout"], group: "lend", summary: "your balance, and where earnings land",
-    examples: [["aile wallet", "balance and address"], ["aile wallet --json", "the same, for a script"]],
-    notes: ["One account, one wallet, made for you when you sign in. Earnings arrive there in USDC on Solana. To send it on, open /wallet/withdraw in a browser and paste the address to send to — nothing is kept on file, so a withdrawal says where it is going at the moment you make it, and nobody who reaches your account can point your earnings anywhere in advance."],
+    name: "wallet", aliases: ["payout"], group: "wallet", summary: "your account's wallet, where earnings land (and your own: wallet own)",
+    examples: [
+      ["aile wallet", "balance and address"],
+      ["aile wallet --json", "the same, for a script"],
+      ["aile wallet own create", "opt in: a self-custody wallet on this machine"],
+      ["aile wallet own", "its address and what it holds"],
+      ["aile wallet own send 5 USDC <address>", "send from it"],
+      ["aile wallet own swap 0.05 SOL USDC", "turn SOL into the USDC calls are paid in (Jupiter)"],
+      ["aile wallet own import", "restore one from a recovery phrase"],
+      ["aile wallet own remove", "delete it from this machine"],
+    ],
+    notes: ["Your own wallet is separate and optional: a key on this machine that you create, encrypted with your passphrase, which pays per call with `aile chat --pay own` and `aile pay`. The account wallet below never leaves the wallet provider.", "One account, one wallet, made for you when you sign in. Earnings arrive there in USDC on Solana. To send it on, open /wallet/withdraw in a browser and paste the address to send to — nothing is kept on file, so a withdrawal says where it is going at the moment you make it, and nobody who reaches your account can point your earnings anywhere in advance."],
   },
   {
     name: "donate", aliases: ["contribute"], group: "lend", summary: "contribute this machine (unpaid, no account)",
@@ -312,8 +377,9 @@ export function suggest(input, names, { max = 2 } = {}) {
 
 const GROUPS = [
   ["tools", "Use aile from your coding tools"],
-  ["buy", "Buy"],
-  ["lend", "Lend"],
+  ["use", "Use models and agents' tools"],
+  ["wallet", "Wallet & funds"],
+  ["lend", "Lend your models and tools"],
   ["account", "Account"],
 ];
 
@@ -356,15 +422,17 @@ const codeSpans = (text) => String(text).replace(/`([^`]+)`/g, `${C.reset}${C.cy
  * dotted line, because a list of twenty-five commands is where the eye stops.
  */
 export function overview() {
-  const lines = [heading("aile.sh", "use and lend AI models, paid per request"), ""];
+  const lines = [heading("aile.sh", "use and lend AI models and agents' tools, paid per request"), ""];
   const PRIMARY = {
     tools: ["setup", "detect", "run", "doctor"],
-    buy: ["lenders", "price", "spend"],
+    use: ["chat", "agents", "lenders", "price", "spend"],
+    wallet: ["balance", "deposit", "wallet"],
     lend: ["login", "connect", "start", "status"],
     account: ["config", "update"],
   };
   const usage = (c) => ({
     connect: "aile connect [provider]", price: "aile price <model>", run: "aile run <tool>",
+    chat: "aile chat <prompt>", pay: "aile pay <url>", agents: "aile agents [query]",
   }[c.name] || `aile ${c.name}`);
   const w = Math.max(width("https://aile.sh/docs/cli"), ...COMMANDS.map((c) => width(usage(c))));
   for (const [g, title] of GROUPS) {

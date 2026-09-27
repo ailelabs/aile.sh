@@ -70,6 +70,22 @@ The approval page then identifies the request only by its code.
 | `AILE_NO_SPINNER` | Set to `1` to turn off spinners. |
 | `AILE_DEBUG` | Set to `1` to print the full error behind a one-line failure message. |
 
+## Your own wallet
+
+Read only by your optional own wallet (`aile wallet own`). The first two are the
+environment form of config keys: a value set with `aile config` wins over them, as
+with `AILE_SERVER_URL`.
+
+| Variable | Effect |
+|---|---|
+| `AILE_SOLANA_RPC` | Solana RPC URL, for example `https://solana-mainnet.g.alchemy.com/v2/<key>`. Same as the `solanaRpc` key. |
+| `AILE_SOLANA_NETWORK` | `mainnet` or `devnet`. Same as the `walletNetwork` key. |
+| `AILE_WALLET_PASSPHRASE` | Unlocks your own wallet when it is encrypted without a prompt, for scripts. `--passphrase` does the same for one command. |
+
+The client reads no `.env` file. To keep an RPC key out of your shell profile, save
+it once with `aile config solanaRpc <url>`: `config.json` is written readable by
+you only, and `aile config` prints the value masked.
+
 ## Cloudflare Access
 
 For a relay you run behind Cloudflare Access. The client sends both as Access's

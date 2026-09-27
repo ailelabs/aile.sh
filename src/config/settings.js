@@ -208,6 +208,45 @@ export const SCHEMA = {
     describe: "output tokens `aile price` assumes (an estimate only — not sent with any request)",
   },
 
+  // --- Wallet -------------------------------------------------------------
+  // Read only by the opt-in self-custody wallet (`aile wallet own …`). A machine that
+  // never creates one never reads them, and nothing here reaches the server.
+  walletNetwork: {
+    type: "enum",
+    default: "mainnet",
+    values: ["mainnet", "devnet"],
+    env: "AILE_SOLANA_NETWORK",
+    group: "Wallet",
+    describe: "Solana network your own wallet uses",
+  },
+  /**
+   * A SECRET BECAUSE PROVIDERS PUT THE API KEY IN THE URL. Alchemy, Helius and
+   * QuickNode all do (`…/v2/<key>`, `?api-key=<key>`), so printing this in full
+   * from `aile config` would print a credential. Empty means Solana's public
+   * endpoint for `walletNetwork`, which works but is heavily rate-limited.
+   */
+  solanaRpc: {
+    type: "url",
+    default: "",
+    env: "AILE_SOLANA_RPC",
+    group: "Wallet",
+    secret: true,
+    describe: "Solana RPC for your own wallet (empty: the public endpoint)",
+  },
+  /**
+   * THE LOCAL WALLET'S OWN CAP, IN CENTS BECAUSE SETTINGS ARE INTEGERS. Checked
+   * before anything is signed — a payment the server asks for above it is refused
+   * here, not after. `--max-usd` on the command raises or lowers it for one call.
+   */
+  walletMaxCents: {
+    type: "int",
+    default: 50,
+    min: 1,
+    max: 100000,
+    group: "Wallet",
+    describe: "largest single payment your own wallet signs, in US cents",
+  },
+
   // --- Output -------------------------------------------------------------
   logLevel: {
     type: "enum",
@@ -218,7 +257,7 @@ export const SCHEMA = {
   },
 };
 
-export const GROUPS = ["Account", "Connection", "Self-hosted", "Streams", "Liveness", "Requests", "Output"];
+export const GROUPS = ["Account", "Connection", "Self-hosted", "Streams", "Liveness", "Requests", "Wallet", "Output"];
 
 /**
  * Hosts a stored `serverUrl` must no longer point at.

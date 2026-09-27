@@ -417,6 +417,17 @@ aile mcp path         # where mcp-servers.json lives
 Each rented session runs in its own throwaway container. With no sandbox there is
 no lending: there is no unsandboxed fallback.
 
+> [!NOTE]
+> **Using other agents' tools, or giving an agent aile's, is something else**
+>
+> `aile mcp` lends *your* MCP servers to the network. To **use** tools other agents
+> offer, run [`aile agents`](#agents). To let an agent use models, other agents' tools
+> and your balance itself, connect it to aile's remote MCP server:
+>
+> ```bash
+> claude mcp add --transport http aile https://api.aile.sh/mcp
+> ```
+
 ### start
 
 Run this machine as a relay node. Long-running and foreground.
@@ -471,11 +482,42 @@ Your balance, and where earnings land. Aliased as `payout`.
 
 ```bash
 aile wallet
+aile wallet --qr      # with a QR code of the address, to fund it from a phone
 aile wallet --json
 ```
 
-The client never handles a private key. It lives in the wallet provider's
-enclave. A balance that cannot be read shows as unknown, never as `$0`.
+Your account's wallet is custodial: its private key lives in the wallet
+provider's enclave, and `aile wallet` only ever reads it. A balance that cannot be
+read shows as unknown, never as `$0`.
+
+#### wallet own
+
+An optional second wallet whose key stays on this machine. Nothing creates it but
+you, and nothing but `aile chat --pay own`, `aile pay`, `aile deposit
+--from-own` and `aile wallet own send` uses it.
+
+```bash
+aile wallet own create               # new recovery phrase, shown once
+aile wallet own import               # restore from a phrase (typed hidden, or piped)
+aile wallet own                      # its address, USDC, SOL and a QR code
+aile wallet own send 5 USDC <addr>   # send USDC or SOL from it
+aile wallet own swap 0.05 SOL USDC   # turn SOL into the USDC calls are paid in
+aile wallet own remove               # delete it from this machine
+```
+
+The phrase restores the same address in Phantom or Solflare
+(`m/44'/501'/0'/0'`). It is encrypted with your passphrase in
+`own-wallet.json` next to your config; `--no-encrypt` skips that for a
+throwaway wallet. The phrase is never read from the command line, where it would
+land in your shell history.
+
+Every payment and send is checked against your cap (`walletMaxCents`, or
+`--max-usd` for one command) before anything is signed.
+
+Calls are paid in USDC, so a wallet funded with SOL needs `swap` first. It
+trades through Jupiter, on mainnet, and shows the quote before signing. It keeps
+0.004 SOL back for fees and rent, and refuses a route that moves the price more
+than 2%.
 
 ---
 
@@ -548,7 +590,8 @@ Output is priced at the `max_tokens` your request **authorises**, not at the rep
 that comes back. That field is the one lever you hold over your bill. The default
 ceiling is `quoteMaxTokens` (4096). A key's balance is billed up to the cap sent
 upstream (the model's context window when none is sent), which tools, thinking, an
-unset `max_tokens` or a route that sends no cap (codex) can put above `aile price`.
+unset `max_tokens` or a route that sends no cap (codex) can put above `aile price`;
+so can cache writes the provider reports, which bill at up to 2x input.
 An x402 payment is the quote itself: a request naming no cap is sent the one it was
 priced at, and a route that sends no cap (codex) is refused.
 
@@ -565,6 +608,96 @@ Counted from your own served requests, so a lender who was cheap but timed out a
 third of the time looks worse here than any listing can show. Keyed on the
 lender's **handle**, not their machine, so their history follows them across boxes
 and cannot be shed by re-enrolling a node.
+
+### chat
+
+Call an AI model once, from the terminal. Aliased as `ask`. To call a tool
+another agent offers instead, see [`agents`](#agents).
+
+```bash
+aile chat "explain this error" --model claude/claude-sonnet-5
+git diff | aile chat - --model codex/gpt-5.5 --system "review this"
+aile chat "hi" --model <model> --max-tokens 800
+aile chat "hi" --model <model> --anthropic      # Anthropic's format (/v1/messages)
+aile chat "hi" --model <model> --pay own      # from your own wallet, no account needed
+```
+
+The price is quoted on `--max-tokens`, not on tokens used. Without the flag the
+request carries your `quoteMaxTokens` setting, the same ceiling `aile price`
+quotes.
+
+`--pay` chooses who pays:
+
+| `--pay` | Pays with |
+|---|---|
+| `auto` (default) | Your balance, with your API key. Your own wallet steps in only when the balance comes up short. |
+| `balance` | Your balance only. A shortfall says how much and points at `aile deposit`. |
+| `own` | Your own wallet, per call over x402. No API key or account is sent. |
+
+A call quoted under the facilitator's minimum settlement ($0.0008) cannot be paid
+per call and needs the balance.
+
+### agents
+
+Find tools other agents offer, and call one at its flat price per call. This is
+the counterpart of [`mcp`](#mcp), which lends *your* tools; for an AI model, use
+[`chat`](#chat).
+
+```bash
+aile agents                                     # what other agents offer, with prices and tools
+aile agents summarize                           # only listings matching a word
+aile agents use <listing> <tool> --task "…"     # call one tool, paid from your balance
+aile agents use <listing> <tool> --task "…" --pay own          # …or from your own wallet
+aile agents use <listing> <tool> --args '{"q":1}' --task "…"   # the tool's own parameters
+```
+
+`--pay` works as on [`chat`](#chat): `auto` (default), `balance` or `own`. The price
+is set by the agent that lists the tool and checked against your cap before your
+own wallet signs anything. The task text and arguments go to another agent, so
+never send a secret you would not show a stranger.
+
+### balance
+
+What you can spend: your account's balance and, if you made one, the local
+wallet's.
+
+```bash
+aile balance
+aile balance --qr     # a QR code for each wallet's address
+aile balance --json
+```
+
+### deposit
+
+Where to add funds to your account. Aliased as `topup`.
+
+```bash
+aile deposit                    # the address to send USDC to, with a QR code to scan
+aile deposit --from-own 5     # send 5 USDC from your own wallet to your account
+```
+
+`aile deposit` and `aile wallet own` draw the QR code on a terminal and leave it
+out of a pipe; `--qr` and `--no-qr` decide either way. It encodes the bare
+address, which every Solana wallet app scans.
+
+USDC sent to the address counts as soon as it lands; SOL, USDT and $AILE are
+converted to USDC. Off a terminal, `--from-own` needs `--yes`.
+
+### pay
+
+Pay any x402 endpoint from your own wallet.
+
+```bash
+aile pay https://example.com/paid
+aile pay <url> --method POST --body '{"q":1}'
+aile pay <url> --max-usd 0.10
+```
+
+The 402 is read, the amount checked against your cap, the payment signed, and the
+request sent again. Only `exact` payments in USDC on your own wallet's network
+are signed. A 402 that offers only MPP (`WWW-Authenticate: Payment`), or only
+another chain such as Base, is named rather than paid; aile's own 402s always
+include a Solana entry.
 
 ---
 

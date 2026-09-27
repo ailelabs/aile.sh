@@ -86,8 +86,14 @@ function setOne(key, rawValue) {
     console.log(`${C.yellow}Warning:${C.reset} this weakens a protection. Staging only.`);
   }
   // A user who changes a timer while the node is running would otherwise
-  // reasonably assume it took effect immediately.
-  console.log(`${C.dim}Takes effect on the next ${C.reset}${C.cyan}aile start${C.reset}${C.dim}.${C.reset}\n`);
+  // reasonably assume it took effect immediately. The buying-side and wallet
+  // keys are the opposite case: every command reads them fresh, so telling the
+  // user to restart a node they may not even run would be wrong.
+  if (["Requests", "Wallet"].includes(SCHEMA[key].group)) {
+    console.log(`${C.dim}Used from the next command on.${C.reset}\n`);
+  } else {
+    console.log(`${C.dim}Takes effect on the next ${C.reset}${C.cyan}aile start${C.reset}${C.dim}.${C.reset}\n`);
+  }
 }
 
 function doReset(keys) {

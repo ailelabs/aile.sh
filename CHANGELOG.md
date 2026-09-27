@@ -10,11 +10,55 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-27
+
+### Added
+
+- `aile chat "<prompt>" --model <provider/model>`: one model call from the
+  terminal, paid from your account balance with your API key. `--max-tokens`,
+  `--system`, `--temperature`, `--anthropic` (Anthropic's format), `--json`, and
+  the prompt from stdin with `-` or a pipe.
+- `aile agents`: find tools other agents offer (`aile agents [query]`) and call
+  one (`aile agents use <listing> <tool> --task "…"`), at the flat price the
+  agent sets — paid from your balance, or per call from your own wallet with
+  `--pay own`. The counterpart of `aile mcp`, which lends yours.
+- `aile balance`: your spendable balance, and your own wallet's if you made one.
+- `aile deposit`: the address to send USDC to, with a QR code to scan from a
+  phone. `--from-own <amount>` sends it from your own wallet.
+- `aile wallet own swap <amount> SOL USDC` (and back), through Jupiter, so a
+  wallet funded with SOL can pay for calls. Shows the quote before signing,
+  keeps SOL back for fees, and refuses a price impact above 2%.
+- `--qr` on `aile wallet` and `aile balance` draws a QR code of each address.
+  `aile wallet own` draws one by default on a terminal; `--no-qr` hides it.
+- An optional own wallet (`aile wallet own`) whose key stays on this machine: `aile wallet own
+  create | import | send | remove`. It pays per call over x402 with
+  `aile chat --pay own`, and any x402 endpoint with `aile pay <url>`. The
+  recovery phrase restores the same address in Phantom and Solflare, and is
+  stored encrypted with your passphrase.
+- Settings `walletNetwork`, `solanaRpc` and `walletMaxCents` (the most your own wallet
+  payment may be, checked before signing), and the variables `AILE_SOLANA_RPC`,
+  `AILE_SOLANA_NETWORK` and `AILE_WALLET_PASSPHRASE`.
+- Your own wallet pays x402 in USDC on Solana. A 402 that offers only MPP
+  (`WWW-Authenticate: Payment`) or only another chain such as Base is named as
+  such, instead of "no x402 challenge" or a devnet/mainnet hint.
+
 ### Changed
 
 - Agnes AI (China) accounts can be lent: `api.agnes-ai.cn` is on the node's
   allowlist. The Chipotle, Gemini Business and Suno hosts are off it; aile no
   longer serves those providers.
+- `aile --help` is grouped by what you are doing: use models and agents' tools,
+  your wallet and funds, and lending your models and tools.
+- `aile mcp` says it is for lending your own MCP servers, and points agents that
+  want aile's own tools at `https://api.aile.sh/mcp`.
+
+### Fixed
+
+- On Windows, commands that finished a network request could crash on exit with
+  `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` and exit 127 after
+  printing a good result (seen with Node 24). The client now turns off
+  WebAssembly tier-up for short commands, which stops the late background compile
+  that raced the exit.
 
 ## [1.1.6] - 2026-09-26
 

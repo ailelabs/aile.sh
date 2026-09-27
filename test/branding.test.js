@@ -96,6 +96,16 @@ describe("branding", () => {
     // A stray import of an upstream module would reintroduce the coupling that
     // the vendored catalog exists to remove.
     //
+    // ONE EXCEPTION, AND IT IS FENCED: the opt-in local wallet signs Solana
+    // transactions and x402 payments, which is audited cryptography and wire
+    // encoding this package should not hand-roll. Exactly these specifiers, and
+    // only from src/localwallet/ — the one directory that holds a key. They are
+    // devDependencies, bundled into dist/cli.js by the build, so an install
+    // still pulls nothing. Anything else, anywhere, still fails.
+    //
+    // And one more, fenced the same way: the QR encoder, from src/cli/qr.js
+    // only. A hand-rolled QR fails by scanning to the wrong address.
+    //
     // Anchored to an `import`/`export` statement, and the specifier may not
     // span lines. A bare /from ["']…["']/ reads prose as code: the words
     // `from "the user` at the end of one comment line pair up with a quote on
@@ -105,6 +115,14 @@ describe("branding", () => {
     // All three import forms, because a dependency sneaks in through whichever
     // one is not being watched — and `await import("ws")` is exactly the shape
     // the WebSocket fallback would have taken.
+    const LOCAL_WALLET_DEPS = new Set([
+      "@scure/bip39",
+      "@scure/bip39/wordlists/english.js",
+      "@solana/kit",
+      "@solana-program/token",
+      "@solana-program/system",
+      "@x402/svm/exact/client",
+    ]);
     const FORMS = [
       /^\s*(?:import|export)\b[^\n]*?\bfrom\s+["']([^"'\n]+)["']/gm,  // import x from "y"
       /^\s*import\s+["']([^"'\n]+)["']/gm,                            // import "y"
@@ -117,7 +135,10 @@ describe("branding", () => {
       for (const form of FORMS) {
         for (const m of text.matchAll(form)) {
           const spec = m[1];
-          const external = !spec.startsWith(".") && !spec.startsWith("node:");
+          const walletDep = LOCAL_WALLET_DEPS.has(spec)
+            && path.relative(path.join(ROOT, "src", "localwallet"), file).split(path.sep)[0] !== "..";
+          const qrDep = spec === "uqr" && file === path.join(ROOT, "src", "cli", "qr.js");
+          const external = !spec.startsWith(".") && !spec.startsWith("node:") && !walletDep && !qrDep;
           expect({ file: path.relative(ROOT, file), spec, external })
             .toEqual({ file: path.relative(ROOT, file), spec, external: false });
         }

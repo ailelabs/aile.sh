@@ -155,7 +155,7 @@ describe("table — fits the terminal instead of wrapping", () => {
 describe("the command table", () => {
   it("gives every command a summary and a known group", () => {
     for (const c of COMMANDS) {
-      expect({ c: c.name, ok: Boolean(c.summary) && ["tools", "buy", "lend", "account"].includes(c.group) })
+      expect({ c: c.name, ok: Boolean(c.summary) && ["tools", "use", "wallet", "lend", "account"].includes(c.group) })
         .toEqual({ c: c.name, ok: true });
     }
   });

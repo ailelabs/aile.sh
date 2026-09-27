@@ -485,6 +485,48 @@ export const api = {
   listModels: (opts = {}) => call("/v1/models", opts),
 
   /**
+   * One inference request, answered as `{status, headers, body}` and NEVER
+   * thrown for a status — a 402 is not a failure here, it is the price (x402's
+   * `PAYMENT-REQUIRED`) or the top-up notice (aile's `balance` fields), and both
+   * live in headers `call()` would discard. Only an unreachable server throws.
+   *
+   * `key` is the buyer key (`sk-aile-…`); the account token is never sent to
+   * `/v1`, which refuses it. `extraHeaders` carries a payment on the retry.
+   * Same transport rules as `call()`: https unless waived, redirects not followed.
+   */
+  async inference({ path, body, key = null, extraHeaders = null, serverUrl, insecure = false, timeoutMs = 300_000 }) {
+    const base = String(serverUrl || loadConfig().serverUrl).replace(/\/+$/, "");
+    assertTransportOk(base, { insecure });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          ...(key ? { authorization: `Bearer ${key}` } : {}),
+          ...(extraHeaders || {}),
+          ...accessHeaders(),
+        },
+        body: JSON.stringify(body),
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error(`no response from ${base} after ${timeoutMs}ms`);
+      throw new Error(`cannot reach ${base}: ${e.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    const text = await res.text();
+    let parsed = text;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* keep the text */ }
+    return { status: res.status, headers: res.headers, body: parsed };
+  },
+
+  /**
    * Is this buyer key live? Asked of `POST /v1/messages/count_tokens`, which
    * runs the same key gate as a real request but selects no lender and bills
    * nothing — so checking a key costs its owner nothing and dials nobody.

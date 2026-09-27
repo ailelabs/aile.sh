@@ -104,6 +104,9 @@ function show(args) {
       ]
     }${C.reset}\n`);
     console.log(`${C.dim}Then: ${C.reset}${C.cyan}aile mcp test claude-code${C.reset}\n`);
+    console.log(`${C.dim}Looking to USE tools other agents offer? That is ${C.reset}${C.cyan}aile agents${C.reset}${C.dim}.${C.reset}`);
+    console.log(`${C.dim}Looking to give an agent aile's own tools instead? That is the remote server:${C.reset}`);
+    console.log(`  ${C.cyan}claude mcp add --transport http aile https://api.aile.sh/mcp${C.reset}\n`);
     return;
   }
 
@@ -133,7 +136,9 @@ function show(args) {
     console.log(`\n${C.yellow}Declared but not served.${C.reset} ${C.dim}A rented MCP server only ever runs in a`);
     console.log(`container — there is no unsandboxed fallback, on purpose.${C.reset}`);
   }
-  console.log(`\n${C.dim}Renters reach these through your node. Nothing listens on a port.${C.reset}\n`);
+  console.log(`\n${C.dim}Renters reach these through your node. Nothing listens on a port.${C.reset}`);
+  console.log(`${C.dim}To use tools OTHER agents offer:${C.reset} ${C.cyan}aile agents${C.reset}`);
+  console.log(`${C.dim}To give an agent aile's own tools instead:${C.reset} ${C.cyan}claude mcp add --transport http aile https://api.aile.sh/mcp${C.reset}\n`);
 }
 
 /** Validate, and say exactly what would run, without running it. */

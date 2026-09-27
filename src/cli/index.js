@@ -26,6 +26,9 @@ import { loadConfig, saveConfig, updateSettings, isLinked, storedOverrides, CONF
 import { resolveLocalTarget, discoverLocalModels, buildLocalCapability, localStatus } from "../relay/local.js";
 import { configCommand } from "./config-command.js";
 import { mcpCommand } from "./mcp-command.js";
+import { cmdChat, cmdBalance, cmdDeposit, cmdPay, cmdAgents } from "./renter-command.js";
+import { localWalletCommand } from "./localwallet-command.js";
+import { printQr } from "./qr.js";
 import { setupCommand, runCommand, envCommand, doctorCommand, detectCommand, setupRemove, setupRefresh, toolsSetUp, isInstalled } from "./setup-command.js";
 import { loadManifest } from "../setup/manifest.js";
 import { makeCtx, webOrigin } from "../setup/ctx.js";
@@ -78,6 +81,11 @@ const BOOLEAN_FLAGS = new Set([
   "all", "dry-run", "new-key", "remove", "fast", "revoke", "keep-key", "tools",
   // `aile mcp --debug test x` must not read "test" as the value of --debug.
   "debug",
+  // `aile chat --anthropic "hi"` must not read the prompt as the flag's value,
+  // nor `aile wallet own create --no-encrypt --json` swallow the `--json`.
+  "anthropic", "no-encrypt",
+  // `aile wallet --qr --json` must not read "--json" as the value of --qr.
+  "qr", "no-qr",
 ]);
 
 function parseArgs(argv) {
@@ -2004,6 +2012,9 @@ async function cmdWallet(args) {
   }
 
   console.log(`\n  Wallet:   ${C.cyan}${res.wallet.address}${C.reset}`);
+  // On request only: this view is read far more often than it is funded from,
+  // and `aile deposit` already draws one by default.
+  if (args.qr) printQr(res.wallet.address, { caption: `${C.dim}Scan to send USDC on Solana to this account${C.reset}` });
   // The balance is why anybody runs this. Null is "could not be read", printed as
   // that rather than as a zero — telling a lender they have nothing when the RPC
   // was merely unreachable is the one wrong answer this line could give.
@@ -3085,6 +3096,31 @@ async function home(args) {
 
 const cmd = args._[0] || (setUpHere() ? "home" : "first-run");
 
+/**
+ * ==========================================================================
+ * A FINISHED COMMAND ON WINDOWS MUST NOT ABORT ON ITS WAY OUT.
+ *
+ * `fetch` parses HTTP with llhttp compiled to WebAssembly, and V8 recompiles
+ * that module on a background thread tens of milliseconds after first use
+ * ("dynamic tiering"). When the compile finishes it posts to the main loop — and
+ * if `process.exit` below has started tearing the loop down by then, libuv on
+ * Windows asserts (`!(handle->flags & UV_HANDLE_CLOSING)`, src\win\async.c) and
+ * the process dies with 127 after printing a perfectly good result. Reproduced
+ * with Node 24.14 and nothing but `await fetch(url); process.exit(0)`; the same
+ * crash is reported against other CLIs on Node 24.
+ *
+ * Turning tiering off keeps the parser on its baseline compile, which is plenty
+ * for a command's handful of requests and posts nothing late. Not for `aile
+ * start`: the relay runs for hours, carries real traffic, and does not exit on
+ * the heels of a request.
+ * ==========================================================================
+ */
+if (process.platform === "win32" && cmd !== "start") {
+  (await import("node:v8")).setFlagsFromString("--no-wasm-dynamic-tiering");
+}
+
+const renterCtx = { requireToken, checkTransport, explainError };
+
 // A one-line "a newer aile.sh is out" notice, drawn above the command's own
 // output. Cache-only and silent by default (see config/update-check.js). Held
 // back where it would be noise or corrupt output: the update command (it runs
@@ -3122,7 +3158,22 @@ try {
     case "start": await cmdStart(args); break;
     case "local": await cmdLocal(args); break;
     case "mcp": await mcpCommand(args); break;
-    case "wallet": case "payout": await cmdWallet(args); break;
+    // `aile wallet own …` is the opt-in self-custody wallet and a separate
+    // module; bare `aile wallet` stays the account's custodial view, unchanged.
+    case "wallet": case "payout":
+      if (args._[1] === "own") await localWalletCommand(args);
+      else await cmdWallet(args);
+      break;
+    // BUYING FROM A TERMINAL. The helpers are passed in rather than exported, so
+    // the renter commands follow exactly the transport and error rules the rest
+    // of this file does.
+    case "chat": case "ask": await cmdChat(args, renterCtx); break;
+    case "balance": await cmdBalance(args, renterCtx); break;
+    case "deposit": case "topup": case "top-up": await cmdDeposit(args, renterCtx); break;
+    case "pay": await cmdPay(args, renterCtx); break;
+    // Tools OTHER AGENTS offer, at a flat price per call — the counterpart of
+    // `aile mcp`, which lends yours. Models are `aile chat`.
+    case "agents": await cmdAgents(args, renterCtx); break;
     case "config": case "settings": configCommand(args); break;
     case "update": case "upgrade": await cmdUpdate(args); break;
     case "logout": await cmdLogout(args); break;
