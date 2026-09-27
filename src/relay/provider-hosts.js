@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 251 hosts.
+ * 249 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -19,8 +19,8 @@ export const PROVIDER_HOSTS = new Set([
   "ai.sumopod.com",
   "aihorde.net",
   "aistudio.tencent.ai",
-  "amelia.chipotle.com",
   "api-inference.modelscope.cn",
+  "api.agnes-ai.cn",
   "api.ai21.com",
   "api.aimlapi.com",
   "api.ainative.studio",
@@ -153,7 +153,6 @@ export const PROVIDER_HOSTS = new Set([
   "auth.x.ai",
   "backend.raycast.com",
   "bazaarlink.ai",
-  "business.gemini.google",
   "center.qoder.sh",
   "chat.deepseek.com",
   "chat.intern-ai.org.cn",
@@ -240,7 +239,6 @@ export const PROVIDER_HOSTS = new Set([
   "server.self-serve.windsurf.com",
   "serving.app.predibase.com",
   "spark-api-open.xf-yun.com",
-  "studio-api.suno.ai",
   "substrate.office.com",
   "t3.chat",
   "tabitoken.com",

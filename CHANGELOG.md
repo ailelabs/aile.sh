@@ -10,6 +10,12 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Changed
+
+- Agnes AI (China) accounts can be lent: `api.agnes-ai.cn` is on the node's
+  allowlist. The Chipotle, Gemini Business and Suno hosts are off it; aile no
+  longer serves those providers.
+
 ## [1.1.6] - 2026-09-26
 
 ### Changed
