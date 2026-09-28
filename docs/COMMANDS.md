@@ -227,6 +227,7 @@ aile connect openrouter         # an API-key provider — prompts, masked
 |---|---|
 | `--key <key>` | Pass the key directly. Visible in `ps`; prefer `--key -`. |
 | `--key -` | Read the key from stdin. Keeps it out of the process list and shell history. |
+| `--account-id <id>` | Cloudflare Workers AI's account id (32 hex characters). Any provider that needs a value besides the key takes it as `--<name>`, or asks for it on a terminal. |
 | `--label <name>` | A human name for the account. Cosmetic; the server never routes on it. |
 | `--account <key>` | An explicit key distinguishing two accounts the provider reports nothing about. |
 | `--replace <n>` | Rotate the credential on an existing account instead of adding a row. |

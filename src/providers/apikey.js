@@ -26,6 +26,38 @@
 
 const VERIFY_TIMEOUT_MS = 15_000;
 
+/** `accountId` → "account ID": an input's name the way a lender reads it. */
+export function inputLabel(name) {
+  return String(name).replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`).replace(/\bid$/, "ID");
+}
+
+/**
+ * The values a provider needs besides the key (`apiKey.requiredInputs` — Cloudflare's
+ * account id, which every one of its URLs carries), trimmed and stripped of trailing
+ * slashes as the server does, and checked against `apiKey.inputPatterns`.
+ *
+ * Checked BEFORE anything is dialled, because the value is written into the verify
+ * URL's path: an unchecked `..` would point the lender's own key at some other route
+ * of the provider's API. The server checks again; this is the one that runs first.
+ *
+ * Null for a provider that needs none. Throws a sentence naming the input otherwise.
+ */
+export function linkInputs(provider, raw) {
+  const names = provider?.apiKey?.requiredInputs || [];
+  if (!names.length) return null;
+  const out = {};
+  for (const name of names) {
+    const value = String(raw?.[name] ?? "").trim().replace(/\/+$/, "");
+    if (!value) throw new Error(`${provider.name} needs your ${inputLabel(name)} as well as the key.`);
+    const pattern = provider.apiKey.inputPatterns?.[name];
+    if (pattern && !new RegExp(pattern).test(value)) {
+      throw new Error(`That ${inputLabel(name)} is not valid for ${provider.name}.`);
+    }
+    out[name] = value;
+  }
+  return out;
+}
+
 /**
  * Ask the provider whether this key is real.
  *
@@ -33,18 +65,31 @@ const VERIFY_TIMEOUT_MS = 15_000;
  * is the one moment the person who can fix a bad key is present and looking at
  * the terminal. `network` is deliberately NOT a rejection of the key: a lender
  * on a flaky connection must not be told their key is invalid.
+ *
+ * `inputs` fills the verify URL's `@name` placeholders (Cloudflare's account id).
+ * One left unfilled is refused, never dialled as the literal text.
  */
-export async function verifyApiKey(provider, key, { fetchImpl = fetch, timeoutMs = VERIFY_TIMEOUT_MS } = {}) {
+export async function verifyApiKey(provider, key, { fetchImpl = fetch, timeoutMs = VERIFY_TIMEOUT_MS, inputs = null } = {}) {
   const cfg = provider.apiKey;
   if (!cfg?.verifyUrl) {
     return { ok: false, reason: "no-verify-url", message: `${provider.name} has no verification endpoint configured.` };
+  }
+  let unfilled = null;
+  const filled = new Set();
+  const verifyUrl = cfg.verifyUrl.replace(/@([A-Za-z][A-Za-z0-9_]*)/g, (_, name) => {
+    if (inputs?.[name]) { filled.add(name); return encodeURIComponent(inputs[name]); }
+    unfilled ??= name;
+    return "";
+  });
+  if (unfilled) {
+    return { ok: false, reason: "no-verify-url", message: `${provider.name} needs your ${inputLabel(unfilled)} to check the key.` };
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res;
   try {
-    res = await fetchImpl(cfg.verifyUrl, {
+    res = await fetchImpl(verifyUrl, {
       headers: { authorization: `Bearer ${key}`, accept: "application/json" },
       signal: controller.signal,
     });
@@ -62,9 +107,17 @@ export async function verifyApiKey(provider, key, { fetchImpl = fetch, timeoutMs
   }
 
   if (res.status === 401 || res.status === 403) {
+    // A 403 on a URL carrying the lender's own values is as often those values as the
+    // key: Cloudflare answers a valid token on a well-formed but wrong account id 403
+    // (code 10000/9109), and "rejected that key" sends the lender to the wrong fix.
+    const named = res.status === 403 && filled.size
+      ? new Intl.ListFormat("en").format([...filled].map(inputLabel))
+      : null;
     return {
       ok: false, reason: "rejected",
-      message: `${provider.name} rejected that key.` +
+      message: (named
+        ? `${provider.name} refused that key for that ${named}; check the ${named} and the key's permissions.`
+        : `${provider.name} rejected that key.`) +
         (cfg.prefix && !key.startsWith(cfg.prefix)
           // Only ever offered after the provider has already said no. A prefix
           // check on its own would lock out every lender the day a provider
@@ -103,12 +156,13 @@ function readName(body, path) {
  * absent rather than null-padded, because there is nothing to attest and a
  * present-but-empty field invites someone to try.
  */
-export async function runApiKeyFlow(provider, { key, log = () => {}, fetchImpl = fetch } = {}) {
+export async function runApiKeyFlow(provider, { key, log = () => {}, fetchImpl = fetch, inputs = null } = {}) {
   const trimmed = String(key ?? "").trim();
   if (!trimmed) throw new Error("No key given.");
+  const checked = linkInputs(provider, inputs);
 
   log(`Checking the key with ${provider.name}…`);
-  const check = await verifyApiKey(provider, trimmed, { fetchImpl });
+  const check = await verifyApiKey(provider, trimmed, { fetchImpl, inputs: checked });
   if (!check.ok) throw new Error(check.message);
 
   return {

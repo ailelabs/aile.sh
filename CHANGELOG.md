@@ -10,6 +10,15 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Added
+
+- `aile connect cloudflare-ai`: Cloudflare Workers AI by API token. It also asks
+  for your account ID (or take `--account-id <id>`), checks it before anything is
+  sent, and checks the token against that account. A token refused for that
+  account names the account ID and the token's permissions, not only the token.
+  No machine can serve it, so link it with `--nodeless` (or turn Nodeless on in
+  the dashboard); without that, `aile connect` says so instead of `aile start`.
+
 ## [1.2.0] - 2026-09-27
 
 ### Added

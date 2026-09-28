@@ -183,6 +183,7 @@ export const COMMANDS = [
       ["aile connect openrouter", "an API key, prompted and masked"],
       ["echo $KEY | aile connect groq --key -", "read the key from a pipe, for scripts"],
       ["aile connect groq --key <key>", "the key as an argument"],
+      ["aile connect cloudflare-ai --account-id <id>", "what it needs besides the key; asked for if missing"],
       ["aile connect groq --nodeless", "let it serve while this machine is off"],
       ["aile connect codex --label work", "connect a second one and name it"],
       ["aile connect codex --account work", "same account across re-links, when the provider identifies nothing itself"],

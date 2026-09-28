@@ -677,10 +677,11 @@ async function googleFlow(provider, ctx) {
  *
  * It takes no browser and no nonce — there is no redirect to open and nothing to
  * attest — so those arguments are simply unused rather than faked. The key comes
- * from the caller, who is the one with a terminal to read it on.
+ * from the caller, who is the one with a terminal to read it on — and so do the
+ * `inputs` a provider needs besides it (Cloudflare's account id).
  */
-async function apikeyFlow(provider, { log, apiKey }) {
-  return runApiKeyFlow(provider, { key: apiKey, log });
+async function apikeyFlow(provider, { log, apiKey, inputs }) {
+  return runApiKeyFlow(provider, { key: apiKey, log, inputs });
 }
 
 const FLOWS = {
@@ -710,7 +711,7 @@ export function needsApiKey(id) {
  * Returns provider tokens — the caller uploads them and must not persist them.
  */
 export async function linkProvider(providerId, {
-  openBrowser, log = console.log, nonce = null, apiKey = null,
+  openBrowser, log = console.log, nonce = null, apiKey = null, inputs = null,
 } = {}) {
   const provider = getProvider(providerId);
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
@@ -721,7 +722,7 @@ export async function linkProvider(providerId, {
   }
   if (NEEDS_BROWSER.has(provider.flow) && !openBrowser) throw new Error("openBrowser is required");
 
-  const tokens = await flow(provider, { openBrowser, log, nonce, apiKey });
+  const tokens = await flow(provider, { openBrowser, log, nonce, apiKey, inputs });
   if (!tokens.accessToken) throw new Error(`${provider.name} returned no access token`);
   return { provider: providerId, ...tokens };
 }

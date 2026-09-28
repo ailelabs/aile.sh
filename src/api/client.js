@@ -250,12 +250,15 @@ export const api = {
    * confuse the two: only the server can conclude `attested`, and only from a
    * signed id_token. See src/providers/probe.js.
    *
+   * `inputs` is what a key-based provider needs besides the key (Cloudflare's
+   * account id), which the server checks again and stores beside the account.
+   *
    * The body is listed explicitly rather than spread, so a field only reaches
    * the server when someone added it here on purpose.
    */
   saveProvider: ({
     provider, tokens, nonce, email, accountKey = null, label = null, probe = null,
-    allowNodeless = null, replaceAccountId = null, ...opts
+    allowNodeless = null, replaceAccountId = null, inputs = null, ...opts
   }) =>
     call("/providers", {
       ...opts, method: "POST",
@@ -263,13 +266,13 @@ export const api = {
       // distinguishes "the lender chose nothing" from "this client is too old to
       // have a view", and only the first may fall back to a default.
       //
-      // The last two go through `omitAbsent` instead, because for them null means
+      // The last three go through `omitAbsent` instead, because for them null means
       // exactly "say nothing" — sending `allowNodeless: null` would fail the
-      // server's boolean check, and `replaceAccountId: null` would read as naming
-      // a row rather than naming none.
+      // server's boolean check, `replaceAccountId: null` would read as naming
+      // a row rather than naming none, and `inputs` must be an object or absent.
       body: {
         provider, tokens, nonce, email, accountKey, label, probe,
-        ...omitAbsent({ allowNodeless, replaceAccountId }),
+        ...omitAbsent({ allowNodeless, replaceAccountId, inputs }),
       },
     }),
 

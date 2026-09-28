@@ -11,11 +11,15 @@
  *   apikey    paste a key, verified against `apiKey.verifyUrl` first
  *   paste     no programmatic flow — the user supplies a token
  *
+ * `apiKey.requiredInputs` are values asked for besides the key, checked against
+ * `apiKey.inputPatterns`, filled into `verifyUrl`'s `@name` and sent as `inputs`.
+ * `apiKey.nodelessOnly` marks a provider no node can serve: it earns only nodeless.
+ *
  * `oauth` / `apiKey` is how an account is LINKED. `transport.auth` is only the
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 29 providers.
+ * 30 providers.
  */
 
 export const PROVIDERS = [
@@ -146,6 +150,23 @@ export const PROVIDERS = [
         "header": "Authorization",
         "scheme": "bearer"
       }
+    }
+  },
+  {
+    "id": "cloudflare-ai",
+    "name": "Cloudflare Workers AI",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.cloudflare.com",
+      "verifyUrl": "https://api.cloudflare.com/client/v4/accounts/@accountId/ai/models/search?per_page=1",
+      "keyUrl": "https://dash.cloudflare.com/profile/api-tokens",
+      "requiredInputs": [
+        "accountId"
+      ],
+      "inputPatterns": {
+        "accountId": "^[0-9a-f]{32}$"
+      },
+      "nodelessOnly": true
     }
   },
   {

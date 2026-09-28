@@ -59,10 +59,24 @@ const STUB_PROVIDER = {
   },
 };
 
+/** One that needs a value besides the key, the way Cloudflare needs its account id. */
+const STUB_ACCOUNT_PROVIDER = {
+  id: "stubaccount",
+  name: "StubAccount",
+  flow: "apikey",
+  apiKey: {
+    host: "127.0.0.1",
+    verifyUrl: null,
+    requiredInputs: ["accountId"],
+    inputPatterns: { accountId: "^[0-9a-f]{8}$" },
+  },
+};
+const STUBS = [STUB_PROVIDER, STUB_ACCOUNT_PROVIDER];
+
 const real = await import("../src/providers/index.js");
 mock.module("../src/providers/index.js", () => ({
   ...real,
-  getProvider: (id) => (id === STUB_PROVIDER.id ? STUB_PROVIDER : real.getProvider(id)),
+  getProvider: (id) => STUBS.find((p) => p.id === id) || real.getProvider(id),
 }));
 
 const { connectProvider } = await import("../src/providers/link.js");
@@ -81,7 +95,7 @@ function stubServer({ verifyStatus = 200, verifyBody = { data: { label: "laptop"
     async fetch(req) {
       const url = new URL(req.url);
 
-      if (url.pathname === "/provider/key") {
+      if (url.pathname.startsWith("/provider/")) {
         calls.push({ path: url.pathname, auth: req.headers.get("authorization") });
         return verifyStatus === 200
           ? Response.json(verifyBody)
@@ -101,7 +115,11 @@ function stubServer({ verifyStatus = 200, verifyBody = { data: { label: "laptop"
           success: true,
           data: {
             ok: true, added: true, total: 1,
-            account: { id: "acct-1", provider: body.provider, attested: 0, label: body.label },
+            // `allow_nodeless` as the server stores it: on only when asked for.
+            account: {
+              id: "acct-1", provider: body.provider, attested: 0, label: body.label,
+              allow_nodeless: body.allowNodeless === true,
+            },
           },
           message: "",
         });
@@ -112,12 +130,13 @@ function stubServer({ verifyStatus = 200, verifyBody = { data: { label: "laptop"
 
   const url = `http://127.0.0.1:${server.port}`;
   STUB_PROVIDER.apiKey.verifyUrl = `${url}/provider/key`;
+  STUB_ACCOUNT_PROVIDER.apiKey.verifyUrl = `${url}/provider/@accountId/key`;
 
   return {
     calls, url,
     /** What was uploaded, if anything. The negative is the assertion that matters. */
     uploads: () => calls.filter((c) => c.path === "/providers" && c.method === "POST"),
-    verifies: () => calls.filter((c) => c.path === "/provider/key"),
+    verifies: () => calls.filter((c) => c.path.startsWith("/provider/")),
     stop: () => { try { server.stop(true); } catch { /* ignore */ } },
   };
 }
@@ -133,9 +152,13 @@ function signedInData(serverUrl) {
   return dir;
 }
 
-/** Run the real CLI. `stdin` is a string to pipe, or "ignore" for none at all. */
-async function runCli(args, { data, stdin = "ignore", timeoutMs = 15_000 } = {}) {
-  const proc = Bun.spawn([process.execPath, CLI, ...args], {
+/**
+ * Run the real CLI. `stdin` is a string to pipe, or "ignore" for none at all.
+ * `preload` is a module Bun runs first — how a test stands in for a provider's
+ * verify endpoint without the CLI growing a hook for it.
+ */
+async function runCli(args, { data, stdin = "ignore", timeoutMs = 15_000, preload = null } = {}) {
+  const proc = Bun.spawn([process.execPath, ...(preload ? ["--preload", preload] : []), CLI, ...args], {
     env: { ...process.env, AILE_DATA_DIR: data, NO_COLOR: "1" },
     stdin: stdin === "ignore" ? "ignore" : new TextEncoder().encode(stdin),
     stdout: "pipe", stderr: "pipe",
@@ -262,6 +285,36 @@ describe("what reaches the server", () => {
   });
 });
 
+describe("a provider that needs more than the key", () => {
+  const ACCOUNT = "0123abcd";
+  const connectAccount = (inputs) => connectProvider(STUB_ACCOUNT_PROVIDER.id, {
+    serverUrl: stub.url, renterToken: "ail_test_token", log: (m) => logged.push(String(m)),
+    apiKey: "sk-stub-good", inputs,
+  });
+
+  it("checks the key against the account named, and sends the account as inputs", async () => {
+    stub = stubServer();
+    await connectAccount({ accountId: ` ${ACCOUNT} ` });
+    expect(stub.verifies()[0].path).toBe(`/provider/${ACCOUNT}/key`);
+    expect(stub.uploads()[0].body.inputs).toEqual({ accountId: ACCOUNT });
+  });
+
+  it("refuses a malformed or missing value before asking anyone anything", async () => {
+    // Not even the nonce: the value goes into a URL path, and a lender who typed
+    // it wrong should hear so before a single request leaves the machine.
+    stub = stubServer();
+    await expect(connectAccount({ accountId: "../zones" })).rejects.toThrow(/account ID is not valid/);
+    await expect(connectAccount(null)).rejects.toThrow(/needs your account ID/);
+    expect(stub.calls.length).toBe(0);
+  });
+
+  it("sends no inputs for a provider that declares none", async () => {
+    stub = stubServer();
+    await connect("sk-stub-good", { inputs: { accountId: ACCOUNT } });
+    expect("inputs" in stub.uploads()[0].body).toBe(false);
+  });
+});
+
 describe("the key never touches this disk", () => {
   it("is not written anywhere under the data dir", async () => {
     // Same custody rule as every other credential here: aile.sh has to hold it
@@ -342,6 +395,27 @@ describe("collecting the key from the command line", () => {
     expect(all).toMatch(/no key on stdin/i);
   });
 
+  it("asks for a provider's account id by flag when there is no terminal", async () => {
+    // cloudflare-ai is the generated row that declares one; any other would be asked the same way.
+    const { code, all } = await runCli(
+      ["connect", "cloudflare-ai", "--key", "cf-token", "--server", "http://127.0.0.1:1", "--insecure"],
+      { data },
+    );
+    expect(code).toBe(1);
+    expect(all).toMatch(/needs your account ID/);
+    expect(all).toMatch(/--account-id <value>/);
+  });
+
+  it("refuses a malformed account id before dialling anything", async () => {
+    const { code, all } = await runCli(
+      ["connect", "cloudflare-ai", "--key", "cf-token", "--account-id", "../zones",
+        "--server", "http://127.0.0.1:1", "--insecure"],
+      { data },
+    );
+    expect(code).toBe(1);
+    expect(all).toMatch(/account ID is not valid for Cloudflare Workers AI/);
+  });
+
   it("refuses to run at all on a machine that is not set up", async () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), "aile-apikey-out-"));
     scratches.push(empty);
@@ -355,6 +429,48 @@ describe("collecting the key from the command line", () => {
     // the key were the problem — it names what to run, both ways.
     expect(all).toMatch(/aile login/);
     expect(all).toMatch(/aile donate/);
+  });
+});
+
+describe("the next step after connecting", () => {
+  // cloudflare-ai is `nodelessOnly` in the generated catalog: no node can serve it, so
+  // `aile start` would leave it earning nothing. Its key check is answered in-process by a
+  // preloaded fetch, so nothing leaves loopback.
+  const ACCOUNT = "0123456789abcdef0123456789abcdef";
+  let preload;
+  beforeEach(() => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aile-apikey-cf-"));
+    scratches.push(dir);
+    preload = path.join(dir, "cloudflare-ok.js");
+    fs.writeFileSync(preload, [
+      "const real = globalThis.fetch;",
+      "globalThis.fetch = (url, init) => String(url).startsWith(\"https://api.cloudflare.com/\")",
+      "  ? Promise.resolve(Response.json({ success: true, result: [] })) : real(url, init);",
+    ].join("\n"));
+  });
+
+  const connectCloudflare = (extra) => {
+    stub = stubServer();
+    return runCli(
+      ["connect", "cloudflare-ai", "--key", "cf-token", "--account-id", ACCOUNT, ...extra,
+        "--server", stub.url, "--insecure"],
+      { data: signedInData(stub.url), preload },
+    );
+  };
+
+  it("says to serve it through Aile, not `aile start`, when it was linked without --nodeless", async () => {
+    const { code, all } = await connectCloudflare([]);
+    expect(code).toBe(0);
+    expect(all).toContain("Serves only through Aile: re-run with --nodeless, or turn Nodeless on in the dashboard.");
+    expect(all).not.toMatch(/aile start/);
+  });
+
+  it("keeps the nodeless line when it was linked with --nodeless", async () => {
+    const { code, all } = await connectCloudflare(["--nodeless"]);
+    expect(code).toBe(0);
+    expect(stub.uploads()[0].body.allowNodeless).toBe(true);
+    expect(all).toMatch(/Serves without this machine/);
+    expect(all).not.toMatch(/Serves only through Aile/);
   });
 });
 

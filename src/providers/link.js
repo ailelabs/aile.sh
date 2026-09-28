@@ -18,6 +18,7 @@
 
 import { api } from "../api/client.js";
 import { loadConfig } from "../relay/config.js";
+import { linkInputs } from "./apikey.js";
 import { linkProvider } from "./flows.js";
 import { getProvider, isApiKeyProvider } from "./index.js";
 import { probeCredential } from "./probe.js";
@@ -98,6 +99,10 @@ export async function connectProvider(providerId, {
   // Set for key-based providers, where the caller collected the key from a
   // terminal before getting here. Unused by every OAuth flow.
   apiKey = null,
+  // What a key-based provider needs besides the key (`apiKey.requiredInputs` —
+  // Cloudflare's account id), as `{ name: value }`. Checked before anything is
+  // dialled, templated into the key check, and sent as `inputs`.
+  inputs = null,
   // Whether this account may serve with no node in the path, and which existing
   // account this link replaces. Both were accepted by the server from the start
   // and never sent by this client — so a key linked here could not be opted into
@@ -118,6 +123,8 @@ export async function connectProvider(providerId, {
   // machine contributing anonymously holds one without being signed in to
   // anything. Naming only `login` would make that machine look unable to link.
   if (!renterToken) throw new Error("This machine is not set up - run `aile login` or `aile donate` first");
+  // Before the nonce: a malformed value fails here, having asked nobody anything.
+  const checkedInputs = linkInputs(provider, inputs);
 
   const opts = { serverUrl, token: renterToken, insecure };
 
@@ -138,6 +145,7 @@ export async function connectProvider(providerId, {
     // they do not recognise, it costs the sign-in outright.
     nonce: attestable ? nonce : null,
     apiKey,
+    inputs: checkedInputs,
   });
 
   // Ask the provider whether the credential actually works, BEFORE uploading it.
@@ -185,6 +193,7 @@ export async function connectProvider(providerId, {
     accountKey,
     allowNodeless,
     replaceAccountId,
+    inputs: checkedInputs,
     ...opts,
   });
 

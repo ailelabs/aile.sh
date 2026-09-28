@@ -47,6 +47,7 @@ import { signIn, LoginError } from "../auth/login.js";
 import { connectProvider } from "../providers/link.js";
 import { PROVIDERS, getProvider, isApiKeyProvider } from "../providers/index.js";
 import { isLinkable, needsApiKey } from "../providers/flows.js";
+import { inputLabel, linkInputs } from "../providers/apikey.js";
 import { api, ApiError, isSecureUrl } from "../api/client.js";
 import { welcome, welcomeNonInteractive } from "./welcome.js";
 import { isInteractive, promptChoice, promptLine, promptSecret, promptConfirm } from "./prompt.js";
@@ -565,11 +566,12 @@ async function cmdConnect(args) {
   }
 
   const apiKey = needsApiKey(providerId) ? await collectApiKey(provider, args) : null;
+  const inputs = apiKey ? await collectInputs(provider, args) : null;
 
   try {
     const account = await connectProvider(providerId, {
       serverUrl: server, renterToken: config.renterToken, insecure,
-      label, accountKey, apiKey, allowNodeless, replaceAccountId,
+      label, accountKey, apiKey, allowNodeless, replaceAccountId, inputs,
     });
     const badge = accountBadge(account).trim();
     const verb = account.added ? "Connected" : "Reconnected";
@@ -596,8 +598,13 @@ async function cmdConnect(args) {
     }
     // What makes it earn. A linked account serves nothing until a node is up —
     // unless it is nodeless, which is the one case where there is no next step.
+    // A provider no node can serve (`apiKey.nodelessOnly`) earns ONLY nodeless, so
+    // pointing it at `aile start` would leave it earning nothing.
+    const nodeless = account.allow_nodeless && keyProvider;
     const serving = getRelayStatus().running || lockHolder();
-    if (!(account.allow_nodeless && keyProvider) && !serving) {
+    if (!nodeless && provider.apiKey?.nodelessOnly) {
+      console.log(`\n${C.yellow}Serves only through Aile:${C.reset} re-run with --nodeless, or turn Nodeless on in the dashboard.`);
+    } else if (!nodeless && !serving) {
       console.log(`\n${next([["aile start", "serve it from this machine"]])}`);
     }
     console.log();
@@ -658,6 +665,34 @@ async function collectApiKey(provider, args) {
   const value = String(key || "").trim();
   if (!value) die("No key given.", "Nothing was connected.");
   return value;
+}
+
+/**
+ * What a key-based provider needs besides the key (`apiKey.requiredInputs` —
+ * Cloudflare's account id): each from `--<name>` in kebab case (`--account-id`),
+ * else a prompt, then checked against the provider's pattern before anything is
+ * dialled. Generic on purpose: any provider that declares inputs gets the same
+ * questions, so none of them needs a case here.
+ */
+async function collectInputs(provider, args) {
+  const names = provider.apiKey?.requiredInputs || [];
+  if (!names.length) return null;
+  const raw = {};
+  for (const name of names) {
+    const flag = name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+    const label = inputLabel(name);
+    if (typeof args[flag] === "string") { raw[name] = args[flag]; continue; }
+    if (!isInteractive()) {
+      die(`${provider.name} needs your ${label} as well as the key, and there is no terminal to ask on.`,
+          `Pass it with --${flag} <value>.`);
+    }
+    raw[name] = await promptLine(`${C.cyan}?${C.reset} ${label[0].toUpperCase()}${label.slice(1)}: `);
+  }
+  try {
+    return linkInputs(provider, raw);
+  } catch (e) {
+    return die(e.message, "Nothing was connected.");
+  }
 }
 
 /**

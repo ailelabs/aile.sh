@@ -311,3 +311,55 @@ describe("the apikey flow", () => {
     await expect(attempt).rejects.toThrow();
   });
 });
+
+describe("a provider that needs more than the key", () => {
+  // Cloudflare's account id sits in the path of every Workers AI URL, and no token
+  // names it, so the lender types it. The generated row carries what to ask for.
+  const CLOUDFLARE = getProvider("cloudflare-ai");
+  const ACCOUNT = "0123456789abcdef0123456789abcdef";
+
+  it("is offered, and says what it needs", () => {
+    expect(CLOUDFLARE?.apiKey).toMatchObject({
+      requiredInputs: ["accountId"],
+      inputPatterns: { accountId: "^[0-9a-f]{32}$" },
+    });
+  });
+
+  it("checks the key against the account the lender named", async () => {
+    const fetchImpl = ok({});
+    await runApiKeyFlow(CLOUDFLARE, { key: "cf-token", fetchImpl, inputs: { accountId: ` ${ACCOUNT}/ ` } });
+    expect(fetchImpl.calls[0].url)
+      .toBe(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/ai/models/search?per_page=1`);
+  });
+
+  it("refuses a malformed or missing one without asking the provider anything", async () => {
+    // The value is written into a URL path: `..` would aim the lender's key at another route.
+    const fetchImpl = ok({});
+    for (const inputs of [{ accountId: "../zones" }, { accountId: ACCOUNT.toUpperCase() }]) {
+      await expect(runApiKeyFlow(CLOUDFLARE, { key: "k", fetchImpl, inputs })).rejects.toThrow(/account ID is not valid/);
+    }
+    for (const inputs of [null, {}, { accountId: "  " }]) {
+      await expect(runApiKeyFlow(CLOUDFLARE, { key: "k", fetchImpl, inputs })).rejects.toThrow(/needs your account ID/);
+    }
+    expect(fetchImpl.calls.length).toBe(0);
+  });
+
+  it("blames the account ID, not the key, when the provider refuses the pair", async () => {
+    // Cloudflare answers a valid token on a well-formed but wrong account id 403.
+    const inputs = { accountId: ACCOUNT };
+    const refused = await verifyApiKey(CLOUDFLARE, "cf-token", { fetchImpl: status(403), inputs });
+    expect({ reason: refused.reason, message: refused.message }).toEqual({
+      reason: "rejected",
+      message: "Cloudflare Workers AI refused that key for that account ID; check the account ID and the key's permissions.",
+    });
+    const bad = await verifyApiKey(CLOUDFLARE, "cf-token", { fetchImpl: status(401), inputs });
+    expect(bad.message).toBe("Cloudflare Workers AI rejected that key.");
+  });
+
+  it("never dials a placeholder it could not fill", async () => {
+    const fetchImpl = ok({});
+    const res = await verifyApiKey(CLOUDFLARE, "k", { fetchImpl });
+    expect({ ok: res.ok, reason: res.reason }).toEqual({ ok: false, reason: "no-verify-url" });
+    expect(fetchImpl.calls.length).toBe(0);
+  });
+});
