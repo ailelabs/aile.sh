@@ -15,7 +15,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 28 providers.
+ * 29 providers.
  */
 
 export const PROVIDERS = [
@@ -496,6 +496,16 @@ export const PROVIDERS = [
         "header": "Authorization",
         "scheme": "bearer"
       }
+    }
+  },
+  {
+    "id": "muse-code",
+    "name": "Meta Model API (Muse Spark)",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.meta.ai",
+      "verifyUrl": "https://api.meta.ai/v1/models",
+      "keyUrl": "https://dev.meta.ai/"
     }
   },
   {

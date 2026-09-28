@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 249 hosts.
+ * 253 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -84,7 +84,9 @@ export const PROVIDER_HOSTS = new Set([
   "api.llm7.io",
   "api.llmgateway.io",
   "api.longcat.chat",
+  "api.lyceum.technology",
   "api.magnific.com",
+  "api.meta.ai",
   "api.minimax.io",
   "api.minimaxi.com",
   "api.mistral.ai",
@@ -134,6 +136,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.x.ai",
   "api.x5lab.dev",
   "api.xiaomimimo.com",
+  "api.xkiro.com",
   "api.z.ai",
   "api.zyloai.net",
   "api2.cursor.sh",
@@ -182,6 +185,7 @@ export const PROVIDER_HOSTS = new Set([
   "dashscope-intl.aliyuncs.com",
   "dashscope.aliyuncs.com",
   "data.prompt.ql.app",
+  "dev.meta.ai",
   "duck.ai",
   "fireworks.ai",
   "g4f.space",
