@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 30 providers.
+ * 31 providers.
  */
 
 export const PROVIDERS = [
@@ -503,6 +503,16 @@ export const PROVIDERS = [
     }
   },
   {
+    "id": "meta",
+    "name": "Meta Model API (Muse Spark)",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.meta.ai",
+      "verifyUrl": "https://api.meta.ai/v1/models",
+      "keyUrl": "https://dev.meta.ai/"
+    }
+  },
+  {
     "id": "mistral",
     "name": "Mistral",
     "flow": "apikey",
@@ -521,12 +531,13 @@ export const PROVIDERS = [
   },
   {
     "id": "muse-code",
-    "name": "Meta Model API (Muse Spark)",
-    "flow": "apikey",
-    "apiKey": {
-      "host": "api.meta.ai",
-      "verifyUrl": "https://api.meta.ai/v1/models",
-      "keyUrl": "https://dev.meta.ai/"
+    "name": "Muse Code (Meta subscription)",
+    "flow": "device",
+    "oauth": {
+      "clientId": "1031625952748946",
+      "deviceCodeUrl": "https://auth.meta.com/oidc/device/authorization/",
+      "tokenUrl": "https://auth.meta.com/oidc/device/token/",
+      "userAgent": "muse-code/1.0.2"
     }
   },
   {

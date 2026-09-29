@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 254 hosts.
+ * 255 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -152,6 +152,7 @@ export const PROVIDER_HOSTS = new Set([
   "ark.cn-beijing.volces.com",
   "auth.g4f.space",
   "auth.kimi.com",
+  "auth.meta.com",
   "auth.openai.com",
   "auth.x.ai",
   "backend.raycast.com",

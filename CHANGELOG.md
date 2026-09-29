@@ -18,6 +18,15 @@ a patch bump fixes something.
   account names the account ID and the token's permissions, not only the token.
   No machine can serve it, so link it with `--nodeless` (or turn Nodeless on in
   the dashboard); without that, `aile connect` says so instead of `aile start`.
+- `aile connect meta`: a Meta Model API key (Muse Spark), checked on
+  `/v1/models` before it is sent.
+- `aile connect muse-code`: a Muse Code subscription, signed in with a device
+  code. Meta's terms allow its credential in Muse Code only; you carry that risk.
+
+### Changed
+
+- `api.meta.ai`, `api.lyceum.technology` and `api.xkiro.com` are on the node's
+  allowlist, so a node can serve Meta, Muse Code, Lyceum and xKiro accounts.
 
 ## [1.2.0] - 2026-09-27
 
