@@ -55,9 +55,37 @@ function toCapability(account) {
   return out;
 }
 
+/**
+ * THE LAST ACCOUNT LIST /providers ANSWERED, for this server and sign-in.
+ *
+ * The server replaces a node's claims wholesale on every hello and routes no
+ * subscription traffic to a node that claims none. So a failed read that sent
+ * an empty list took a working node out of routing — through a deploy's
+ * reconnect wave, or an MCP or self-hosted re-advertise — until something
+ * unrelated sent another hello. A failed read re-sends this list instead (a
+ * 401/403 is a sign-out, not a failure: it sends an empty list and reads no more); with
+ * none for this sign-in it still sends an empty one, and the supervisor reads
+ * again (`accountsUnread`) and re-sends the hello once a read succeeds.
+ */
+let lastRead = null;      // { key, claims }
+let unreadReason = null;  // why the latest read failed, or null
+
+/** Why the latest read of /providers failed, or null when it succeeded. */
+export function accountsUnread() {
+  return unreadReason;
+}
+
+/** Test helper — forget the last list read. */
+export function __resetCapabilitiesState() {
+  lastRead = null;
+  unreadReason = null;
+}
+
 export async function buildCapabilities({ nodeId, maxConcurrent, mcp = null, local = null }) {
   const config = loadConfig();
-  let accounts = [];
+  // Keyed, so one sign-in's list is never re-sent under another's.
+  const key = `${config.serverUrl} ${config.renterToken}`;
+  let claims = lastRead?.key === key ? lastRead.claims : [];
   try {
     const res = await api.listProviders({
       serverUrl: config.serverUrl,
@@ -68,10 +96,22 @@ export async function buildCapabilities({ nodeId, maxConcurrent, mcp = null, loc
       // approved — the reconnect loop is exactly where that must not happen.
       insecure: config.allowInsecure === true,
     });
-    accounts = res.accounts || [];
-  } catch {
-    // Not signed in, or the server is briefly unreachable — advertise an empty
-    // node rather than failing the whole connection.
+    claims = (res.accounts || []).map(toCapability);
+    lastRead = { key, claims };
+    unreadReason = null;
+  } catch (e) {
+    if (e?.status === 401 || e?.status === 403) {
+      // The server refused this sign-in (revoked or rotated): it is signed out,
+      // not unreachable. Advertise an empty node and stop re-reading — a retry
+      // would only re-send claims the server no longer accepts, for ever.
+      lastRead = null;
+      claims = [];
+      unreadReason = null;
+    } else {
+      // Briefly unreachable — advertise the last list it answered (an empty
+      // node if none) rather than failing the whole connection.
+      unreadReason = e?.message || "no answer";
+    }
   }
   // Self-hosted capacity is advertised under its own key, never merged into
   // claimedConnections. A local model is a different product with a different
@@ -97,7 +137,7 @@ export async function buildCapabilities({ nodeId, maxConcurrent, mcp = null, loc
     maxConcurrent,
     platform: process.platform,
     agentVersion: 2,
-    claimedConnections: accounts.map(toCapability),
+    claimedConnections: claims,
     localModel,
     mcpServers: mcpCapability.servers,
   };

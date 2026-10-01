@@ -54,6 +54,11 @@ a patch bump fixes something.
   check read the defaults instead of your settings.
 - `aile start` now stops cleanly when its terminal is closed (SIGHUP), not only
   on Ctrl+C.
+- A node whose account list could not be read (the server mid-deploy, a timeout)
+  no longer drops out of routing: it re-sends the accounts it last listed and
+  reads again until the server answers. It used to advertise none and earn
+  nothing until it next reconnected. A sign-in the server refuses still
+  advertises no accounts.
 
 ## [1.2.0] - 2026-09-27
 

@@ -47,8 +47,9 @@ mock.module("../src/relay/config.js", () => ({
 
 // buildCapabilities already tolerates an unreachable API, but stubbing keeps the
 // test off the network and fast.
+let listProviders = async () => ({ accounts: [] });
 mock.module("../src/api/client.js", () => ({
-  api: { listProviders: async () => ({ accounts: [] }) },
+  api: { listProviders: (...a) => listProviders(...a) },
   ApiError: class ApiError extends Error {},
   isSecureUrl: () => true,
 }));
@@ -116,5 +117,25 @@ describe("supervisor", () => {
     const after = server.state.connectCount;
     await Bun.sleep(2500);   // longer than the first backoff interval
     expect(server.state.connectCount).toBe(after);
+  }, 30000);
+
+  // A hello whose account read failed claims nothing, and the server routes no
+  // subscription traffic to such a node. Nothing else re-sends a hello on a
+  // healthy link, so the node must read again by itself.
+  it("reads the accounts again after a failed read, and re-sends the hello", async () => {
+    listProviders = async () => { throw new Error("server returned 502"); };
+    const before = server.state.hellos.length;
+    await startRelayAgent();
+    let deadline = Date.now() + 10000;
+    while (server.state.hellos.length <= before && Date.now() < deadline) await Bun.sleep(25);
+    expect(server.state.hellos.at(-1).capabilities.claimedConnections).toEqual([]);
+
+    listProviders = async () => ({ accounts: [{ id: "a1", provider: "codex" }] });
+    deadline = Date.now() + 10000;
+    while (server.state.hellos.length <= before + 1 && Date.now() < deadline) await Bun.sleep(25);
+    expect(server.state.hellos.at(-1).capabilities.claimedConnections).toEqual([
+      { id: "a1", provider: "codex", authType: "oauth" },
+    ]);
+    stopRelayAgent("test done");
   }, 30000);
 });

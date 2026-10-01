@@ -24,7 +24,9 @@ import { describe, expect, it, beforeEach, afterAll } from "bun:test";
 import os from "node:os";
 import net from "node:net";
 
-import { buildCapabilities, SAFE_FIELDS, DERIVED_FIELDS } from "../src/relay/attest.js";
+import {
+  buildCapabilities, SAFE_FIELDS, DERIVED_FIELDS, accountsUnread, __resetCapabilitiesState,
+} from "../src/relay/attest.js";
 import { saveConfig, resetSettings } from "../src/relay/config.js";
 import { buildMcpCapability, __resetMcpWarnState } from "../src/mcp/capabilities.js";
 import { normalizeServer } from "../src/mcp/config.js";
@@ -71,6 +73,7 @@ beforeEach(() => {
   stub = null;
   resetSettings();
   saveConfig({ renterToken: "" });
+  __resetCapabilitiesState();
 });
 
 afterAll(() => stub?.stop());
@@ -163,6 +166,66 @@ describe("a broken server does not take the node down with it", () => {
 
     const caps = await build();
     expect(caps.claimedConnections).toEqual([]);
+  });
+
+  // The server replaces a node's claims on every hello and routes nothing to a
+  // node claiming none, so a read that fails AFTER one succeeded must not send
+  // an empty list over the one the server already routes on.
+  it("re-sends the last list it read when a later read fails", async () => {
+    stub = stubServer({ accounts: [LEAKY_ACCOUNT] });
+    saveConfig({ serverUrl: stub.url, renterToken: "ail_tok" });
+    const first = (await build()).claimedConnections;
+    expect(first).toHaveLength(1);
+    expect(accountsUnread()).toBeNull();
+
+    stub.stop();
+    const caps = await build();
+    expect(caps.claimedConnections).toEqual(first);
+    // ...and says the read failed, so the supervisor reads again.
+    expect(accountsUnread()).toBeTruthy();
+  });
+
+  // A refused sign-in (revoked or rotated while the socket stays up) is a
+  // sign-out: re-sending the old claims and re-reading for ever never converges.
+  it("drops the kept list and stops re-reading when the sign-in is refused", async () => {
+    for (const refused of [401, 403]) {
+      __resetCapabilitiesState();
+      let status = 200;
+      const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: () => status === 200
+          ? Response.json({ success: true, data: { accounts: [LEAKY_ACCOUNT] }, message: "" })
+          : Response.json({ success: false, error: "unauthorized" }, { status }),
+      });
+      try {
+        saveConfig({ serverUrl: `http://127.0.0.1:${server.port}`, renterToken: "ail_tok" });
+        expect((await build()).claimedConnections).toHaveLength(1);
+
+        status = 500;   // transient: the list is kept and the read retried
+        expect((await build()).claimedConnections).toHaveLength(1);
+        expect(accountsUnread()).toBeTruthy();
+
+        status = refused;
+        expect((await build()).claimedConnections).toEqual([]);
+        expect(accountsUnread()).toBeNull();
+
+        status = 500;   // nothing kept to re-send after a sign-out
+        expect((await build()).claimedConnections).toEqual([]);
+      } finally {
+        server.stop(true);
+      }
+    }
+  });
+
+  it("never re-sends one sign-in's list under another", async () => {
+    stub = stubServer({ accounts: [LEAKY_ACCOUNT] });
+    saveConfig({ serverUrl: stub.url, renterToken: "ail_tok" });
+    await build();
+
+    stub.stop();
+    saveConfig({ serverUrl: stub.url, renterToken: "ail_other" });
+    expect((await build()).claimedConnections).toEqual([]);
   });
 
   it("survives a response with no accounts array at all", async () => {

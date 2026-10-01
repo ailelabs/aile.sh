@@ -7,7 +7,7 @@
 
 import dns from "node:dns/promises";
 import { RelayAgent } from "./agent.js";
-import { buildCapabilities } from "./attest.js";
+import { buildCapabilities, accountsUnread } from "./attest.js";
 import { loadConfig } from "./config.js";
 import { getNodeId } from "./identity.js";
 import { enrollNodeOrRotate } from "./enroll.js";
@@ -164,6 +164,8 @@ const state = {
   localState: null,
   localTimer: null,
   localChecking: false,
+  // The re-read of the account list after a hello went out without one.
+  accountsTimer: null,
 };
 
 /** The socket closed under a running node: start the quiet window. */
@@ -368,6 +370,7 @@ async function connectOnce(config) {
     // to re-advertise to, and the connect path already reads the file itself.
     watchMcpConfig(log);
     watchLocal(log);
+    if (accountsUnread()) retryAccounts(log);
     state.attempt = 0;
     state.lastError = null;
     state.lastConnectedAt = new Date().toISOString();
@@ -494,6 +497,7 @@ async function readvertiseMcp(log) {
   });
   if (!agent.readvertise(capabilities)) return;
   state.mcpLastReadvertiseAt = Date.now();
+  if (accountsUnread()) retryAccounts(log);
 
   // The RUNTIME the agent spawns with is decided at connect time, and a lender
   // who starts Docker after the node is up has changed it. Update it here too,
@@ -545,10 +549,49 @@ export async function recheckLocal(log = nodeLog(loadConfig().logLevel)) {
       mcp,
       local: status,
     });
-    if (agent.readvertise(capabilities)) agent.mcpRuntime = mcp.runtime?.runtime || null;
+    if (!agent.readvertise(capabilities)) return;
+    agent.mcpRuntime = mcp.runtime?.runtime || null;
+    if (accountsUnread()) retryAccounts(log);
   } finally {
     state.localChecking = false;
   }
+}
+
+/**
+ * A HELLO WENT OUT ON AN ACCOUNT LIST THAT COULD NOT BE READ: GET /providers
+ * failed, so it carried the last list read, or none — and the server routes no
+ * subscription traffic to a node that claims none. Read again on the reconnect
+ * backoff and re-send the hello once a read succeeds, and only then, because
+ * the server probes the lender's accounts on every hello. Ends when the socket
+ * drops (the next connect reads afresh) or another hello already carried a
+ * fresh list. Idempotent; stopped with the node.
+ */
+function retryAccounts(log, attempt = 0) {
+  if (state.accountsTimer || state.stopped) return;
+  const config = loadConfig();
+  state.accountsTimer = setTimeout(() => {
+    state.accountsTimer = null;
+    rereadAccounts(log, attempt).catch((e) => log?.debug?.(`account re-read failed: ${e.message}`));
+  }, backoffDelay(attempt, { min: config.reconnectMinMs, max: config.reconnectMaxMs }));
+  if (state.accountsTimer.unref) state.accountsTimer.unref();
+}
+
+async function rereadAccounts(log, attempt) {
+  const agent = state.agent;
+  if (state.stopped || !agent?.getStats?.().connected || !accountsUnread()) return;
+  const mcp = buildMcpCapability({ log });
+  const capabilities = await buildCapabilities({
+    nodeId: getNodeId(),
+    maxConcurrent: loadConfig().maxConcurrent,
+    mcp,
+  });
+  const why = accountsUnread();
+  if (why) {
+    log?.debug?.(`accounts not read (${why}) · retrying`);
+    retryAccounts(log, attempt + 1);
+    return;
+  }
+  if (agent.readvertise(capabilities)) agent.mcpRuntime = mcp.runtime?.runtime || null;
 }
 
 function scheduleReconnect() {
@@ -587,6 +630,10 @@ export function stopRelayAgent(reason = "manual stop") {
   state.stopped = true;
   unwatchMcpConfig();
   unwatchLocal();
+  if (state.accountsTimer) {
+    clearTimeout(state.accountsTimer);
+    state.accountsTimer = null;
+  }
   if (state.retryTimer) {
     clearTimeout(state.retryTimer);
     state.retryTimer = null;

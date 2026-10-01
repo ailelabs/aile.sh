@@ -132,7 +132,7 @@ records at line rate and must stay cheap.
 
 ## 4. Control plane (JSON, text frames)
 
-### `hello` — node → server, once, immediately after open
+### `hello` — node → server, immediately after open, and again when what it advertises changes
 
 ```json
 {
@@ -158,6 +158,14 @@ back, not proof of anything. The node holds no provider credentials at all
 (they are custodied server-side), so a bug here cannot leak one, but neither can
 this payload establish that an account exists. The field name says "claimed" on
 purpose. See §7 for what actually proves an account.
+
+The node reads this list from the server's `GET /providers` for every `hello`,
+and a server replaces a node's claims with each one, so a node that claims
+nothing gets no subscription traffic. A read that fails therefore re-sends the
+last list read for the same server and sign-in (an empty one if there is none),
+and the node reads again on its reconnect backoff and sends one more `hello`
+once a read succeeds. A read refused with 401 or 403 is a sign-out, not a
+failure: the node sends an empty list and stops re-reading.
 
 `authType` says how the account is **paid for**, which is a different question
 from whether it is verified. `oauth` is a subscription and stops at a monthly
