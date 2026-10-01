@@ -227,12 +227,12 @@ aile connect openrouter         # an API-key provider — prompts, masked
 |---|---|
 | `--key <key>` | Pass the key directly. Visible in `ps`; prefer `--key -`. |
 | `--key -` | Read the key from stdin. Keeps it out of the process list and shell history. |
-| `--account-id <id>` | Cloudflare Workers AI's account id (32 hex characters). Any provider that needs a value besides the key takes it as `--<name>`, or asks for it on a terminal. |
 | `--label <name>` | A human name for the account. Cosmetic; the server never routes on it. |
 | `--account <key>` | An explicit key distinguishing two accounts the provider reports nothing about. |
 | `--replace <n>` | Rotate the credential on an existing account instead of adding a row. |
 | `--nodeless` | API-key providers only: opt in to serving with no machine in the path. |
 | `--no-nodeless` | Explicitly keep the account node-only. |
+| `--account-id <id>` | Cloudflare Workers AI: your account ID. Asked for when omitted at a terminal. |
 
 Reading a key from stdin:
 
@@ -376,19 +376,42 @@ aile disconnect 2 --yes
 
 ### local
 
-Lend a model already running on this machine: Ollama, vLLM, LM Studio,
-llama.cpp, anything speaking the OpenAI API.
+Download a model, run it on this machine, and lend it. Or lend a model server you
+already run (vLLM, LM Studio, anything speaking the OpenAI API). See
+[Self-hosted models](https://aile.sh/docs/lend/local).
 
 ```bash
-aile local http://127.0.0.1:11434   # point at an endpoint and turn it on
-aile local                          # show current state
-aile local --off                    # stop lending it; the endpoint is remembered
+aile local setup                        # one command: engine, model, test, lend
+aile local                              # what is set up, and what each model sells as
+aile local models [query]               # models that download and sell, and which fit here
+aile local pull qwen/qwen3-8b           # download one: a curated id or an Ollama tag
+aile local pull hf.co/<user>/<repo>     # any GGUF on Hugging Face (:Q8_0 picks a quant)
+aile local list                         # what is downloaded
+aile local run <model> "a prompt"       # talk to it; no prompt opens a chat
+aile local rm <model>                   # delete one
+aile local install [ollama|llamacpp]    # install an engine on its own
+aile local on                           # offer it to buyers
+aile local --off                        # stop lending it; the endpoint is remembered
+aile local http://127.0.0.1:1234        # lend a server you already run, and turn it on
 ```
 
 | Flag | What it does |
 |---|---|
+| `--engine <ollama\|llamacpp>` | Which engine runs the model. Default: Ollama if it is here, else llama.cpp. |
+| `--model <id>` | `setup` without the model menu. |
+| `--quant <name>` | A specific build, for example `Q8_0`. Default: 4-bit (`Q4_K_M`). |
+| `--ctx <tokens>` | Context window. Default: the `localContext` setting (8192). |
+| `--accel <cuda\|vulkan\|cpu>` | Which llama.cpp build to install. Default: picked from your GPU. |
+| `--yes` | No questions: installs, downloads and lends with the defaults. |
+| `--start`, `--no-start` | After `setup`, start serving, or not, without asking. |
+| `--keep-base` | `rm` keeps the Ollama download an alias was made from. |
 | `--off` | Stop lending the local model. |
-| `--endpoint <url>` | Set the endpoint without turning it on. |
+| `--endpoint <url>` | The same as `aile local <url>`: sets the endpoint and turns lending on. |
+
+A model sells only under an id with a published list price. The curated models
+are saved under that id (Ollama's `llama3.1:8b` becomes
+`meta-llama/llama-3.1-8b-instruct`), and every screen says whether a model sells,
+from the server's own price check. Any other model runs here but may not sell.
 
 The endpoint is validated before it is saved and constrained to **loopback or LAN
 addresses**. A public value would turn the node into an open proxy.

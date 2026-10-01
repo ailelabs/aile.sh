@@ -186,6 +186,24 @@ describe("validatePatch — the write path is strict", () => {
   test("an empty patch is valid and changes nothing", () => {
     expect(validatePatch({})).toEqual({ ok: true, value: {} });
   });
+
+  test("cross-field rules read what is saved: turning lending on needs an endpoint somewhere", () => {
+    // `aile config localEnabled true` with an endpoint already saved used to be
+    // refused, because the rule was checked against the defaults.
+    expect(validatePatch({ localEnabled: true }, { current: { localEndpoint: "http://127.0.0.1:11434" } }).ok).toBe(true);
+    expect(validatePatch({ localEnabled: true }, { current: {} }).ok).toBe(false);
+    expect(validatePatch({ localEnabled: true, localEndpoint: "http://127.0.0.1:1" }).ok).toBe(true);
+  });
+
+  test("the self-hosted keys: an engine enum and an absolute model directory", () => {
+    expect(validatePatch({ localEngine: "LlamaCpp" }).value).toEqual({ localEngine: "llamacpp" });
+    expect(validatePatch({ localEngine: "vllm" }).ok).toBe(false);
+    expect(validatePatch({ localModelDir: "relative/dir" }).ok).toBe(false);
+    expect(validatePatch({ localModelDir: "" }).value).toEqual({ localModelDir: "" });
+    const abs = process.platform === "win32" ? "D:\\models" : "/srv/models";
+    expect(validatePatch({ localModelDir: abs }).ok).toBe(true);
+    expect(validatePatch({ localContext: 1024 }).ok).toBe(false);
+  });
 });
 
 describe("pruneToOverrides", () => {

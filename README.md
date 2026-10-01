@@ -65,7 +65,7 @@ full.
 aile connect codex                      # a subscription
 aile connect openrouter                 # an API key, prompted and never echoed
 echo $KEY | aile connect groq --key -   # the same key, from a pipe
-aile local http://127.0.0.1:11434       # a model running on this machine
+aile local setup                        # a model on your own GPU (below)
 aile capacity                           # all three, grouped by kind
 ```
 
@@ -81,6 +81,24 @@ so those accounts read `unverified` for as long as they exist. `aile accounts`
 says so on the line beneath.
 
 [Connect an account →](https://aile.sh/docs/lend/connect)
+
+## Lend your own GPU
+
+```bash
+aile local setup                        # pick a model that fits, download it, test it, lend it
+aile local models                       # what downloads and sells, and what fits here
+aile local pull qwen/qwen3-8b           # one model; any Ollama tag or hf.co/<user>/<repo> too
+aile local run qwen/qwen3-8b "hello"    # talk to it
+aile local http://127.0.0.1:1234        # or lend a server you already run
+```
+
+Ollama runs the model, installed for you if it is missing (with your
+permission). Where it cannot be, aile downloads a pinned llama.cpp build into
+its own folder instead and runs it only while `aile start` runs. A model sells
+only under a name with a published list price, so the models aile offers are
+saved under that name, and anything else is marked as not selling.
+
+[Self-hosted models →](https://aile.sh/docs/lend/local)
 
 ## Getting paid
 
@@ -210,6 +228,11 @@ matters: the model runs on your machine, so your machine reads those prompts.
   because the server terminates TLS with the provider and is the party that can
   use them. This machine holds its account token and node identity. A pasted API
   key is checked, uploaded, and never written here.
+- **Download or install anything because the server asked.** Models and
+  engines are fetched only by `aile local` commands you run, from ollama.com,
+  huggingface.co and github.com; each llama.cpp build and Hugging Face file is
+  checked against its published sha256. Nothing on the node's relay path can
+  reach that code, and a test walks the imports to prove it.
 - **Take a setting that names a host.** No config value from you, from us, or
   from the server can point this machine at a target the allowlist does not
   already contain.

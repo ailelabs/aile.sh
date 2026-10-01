@@ -442,6 +442,15 @@ export const api = {
   },
 
   /**
+   * Would `local/<id>` be priced? Public — no token. The server answers with the
+   * check `/v1` itself applies to a self-hosted request, so a model this says is
+   * priced is one the network will actually sell. `ids` are sent raw: a node
+   * advertises exactly that string and is matched exactly.
+   */
+  selfHostedPrices: ({ ids, ...opts }) =>
+    call(`/catalog/self-hosted?ids=${encodeURIComponent(ids.join(","))}`, { timeoutMs: 8000, ...opts }),
+
+  /**
    * What this account has actually put through each lender.
    *
    * ============================================================================

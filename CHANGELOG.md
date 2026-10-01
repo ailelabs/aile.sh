@@ -12,6 +12,26 @@ a patch bump fixes something.
 
 ### Added
 
+- `aile local setup`: lend your own GPU in one command. It reads this machine
+  (GPU, memory, free disk), installs an engine if there is none, offers the
+  models that fit with their list price, downloads the one you pick, asks it a
+  test question and turns lending on. `--yes --model <id>` does it unattended.
+- `aile local models`, `pull`, `list`, `rm`, `run`, `install` and `on`. `pull`
+  takes a curated id, any Ollama tag, or any GGUF on Hugging Face
+  (`hf.co/<user>/<repo>[:quant]`); `run` talks to a model, once or as a chat.
+- A model sells only under a name with a published list price. The curated
+  models (Llama, Qwen, Gemma, Mistral, Phi, gpt-oss, DeepSeek) are saved under
+  that name, and every screen says whether a model sells, from the server's own
+  price check.
+- llama.cpp as a second engine, for a machine where Ollama cannot be installed:
+  one pinned `llama-server` build (CUDA, Vulkan, Metal or CPU) downloaded into
+  aile's own folder and checked against its sha256. `aile start` runs it, restarts
+  it if it crashes, and stops it with the node. `AILE_LLAMA_SERVER_BIN` uses your
+  own build.
+- Settings `localEngine`, `localContext` and `localModelDir`. Models go under
+  `%LOCALAPPDATA%` on Windows, not the roaming profile.
+- A progress bar for downloads, with speed and time left; plain lines off a
+  terminal. Ctrl+C keeps what was downloaded, and the same command resumes it.
 - `aile connect cloudflare-ai`: Cloudflare Workers AI by API token. It also asks
   for your account ID (or take `--account-id <id>`), checks it before anything is
   sent, and checks the token against that account. A token refused for that
@@ -27,6 +47,13 @@ a patch bump fixes something.
 
 - `api.meta.ai`, `api.lyceum.technology` and `api.xkiro.com` are on the node's
   allowlist, so a node can serve Meta, Muse Code, Lyceum and xKiro accounts.
+
+### Fixed
+
+- `aile config localEnabled true` was refused even with an endpoint saved: the
+  check read the defaults instead of your settings.
+- `aile start` now stops cleanly when its terminal is closed (SIGHUP), not only
+  on Ctrl+C.
 
 ## [1.2.0] - 2026-09-27
 

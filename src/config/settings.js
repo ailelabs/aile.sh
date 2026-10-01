@@ -29,7 +29,9 @@
  * `relay/allowlist.js`, and the test that asserts it.
  */
 
-/** @typedef {"string"|"url"|"bool"|"int"|"enum"} SettingType */
+import path from "node:path";
+
+/** @typedef {"string"|"url"|"bool"|"int"|"enum"|"path"} SettingType */
 
 export const SCHEMA = {
   // --- Account ------------------------------------------------------------
@@ -132,6 +134,33 @@ export const SCHEMA = {
     default: "",
     group: "Self-hosted",
     describe: "comma-separated model names to advertise (blank = ask the endpoint)",
+  },
+  /**
+   * Who runs the model. `external` is a server the owner runs themselves —
+   * everything that existed before `aile local setup`, so it is the default
+   * and an existing install keeps behaving exactly as it did. `ollama` and
+   * `llamacpp` are engines aile set up: `aile start` brings them up first.
+   */
+  localEngine: {
+    type: "enum",
+    values: ["external", "ollama", "llamacpp"],
+    default: "external",
+    group: "Self-hosted",
+    describe: "what runs the model: external (your own server), ollama, or llamacpp",
+  },
+  localContext: {
+    type: "int",
+    default: 8192,
+    min: 2048,
+    max: 262144,
+    group: "Self-hosted",
+    describe: "context window, in tokens, for models aile downloads",
+  },
+  localModelDir: {
+    type: "path",
+    default: "",
+    group: "Self-hosted",
+    describe: "where downloaded models and engines go (blank = the default)",
   },
 
   // --- Streams ------------------------------------------------------------
@@ -390,6 +419,15 @@ export function coerce(key, raw) {
       }
       return v;
     }
+    case "path": {
+      // An absolute directory, or blank for the default. Relative paths are
+      // refused: they would mean something different from every directory a
+      // command happens to run in.
+      const v = String(raw).trim();
+      if (!v) return "";
+      if (!path.isAbsolute(v)) throw new Error(`${key} must be an absolute path (got "${raw}")`);
+      return path.normalize(v);
+    }
     case "enum": {
       const v = String(raw).trim().toLowerCase();
       if (!spec.values.includes(v)) {
@@ -461,7 +499,7 @@ function migrate(stored) {
  * outright, so a typo is a visible error rather than a setting that silently
  * never takes effect, and a patch object can never reach the account token.
  */
-export function validatePatch(patch, { allowProtected = false } = {}) {
+export function validatePatch(patch, { allowProtected = false, current = {} } = {}) {
   const clean = {};
   for (const [key, value] of Object.entries(patch || {})) {
     if (!isKnownKey(key)) {
@@ -477,7 +515,9 @@ export function validatePatch(patch, { allowProtected = false } = {}) {
     }
   }
 
-  const combined = { ...merge({}), ...clean };
+  // Checked against what is SAVED, not against the defaults: `localEnabled true`
+  // on its own is fine when an endpoint is already set, and used to be refused.
+  const combined = { ...merge(current), ...clean };
   for (const check of CHECKS) {
     if (!check.test(combined)) return { ok: false, error: check.message };
   }

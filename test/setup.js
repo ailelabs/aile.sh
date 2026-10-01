@@ -32,6 +32,11 @@ process.env.AILE_DATA_DIR = TEST_DIR;
 // Windows. update-check.test.js deletes this to exercise the enabled path.
 process.env.AILE_NO_UPDATE_CHECK = "1";
 
+// Never a real package manager, whatever a test asks for: `aile local install
+// ollama` and `aile local setup` refuse to run winget/brew/curl|sh while this is
+// set (src/local/install.js). Spawned CLIs inherit it through `process.env`.
+process.env.AILE_LOCAL_NO_INSTALL = "1";
+
 // Exported so a test can assert it is actually pointed at the sandbox.
 export const TEST_AILE_DIR = TEST_DIR;
 

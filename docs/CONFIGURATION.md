@@ -64,6 +64,9 @@ Lending a model running on your own machine. Off unless you turn it on; see
 | `localEnabled` | `false` | Also lend a self-hosted model. |
 | `localEndpoint` | — | OpenAI-compatible base URL. Loopback or LAN addresses only. |
 | `localModels` | — | Comma-separated names to advertise. Blank asks the endpoint. |
+| `localEngine` | `external` | What runs the model: `external` (a server you run), `ollama` or `llamacpp`. Set by `aile local setup`; `aile start` starts a managed engine first. |
+| `localContext` | `8192` | Context window, in tokens, for models `aile local` downloads. |
+| `localModelDir` | — | Where downloaded models and llama.cpp go. Blank: `%LOCALAPPDATA%\aile\local` on Windows, `~/.aile/local` elsewhere. Must be an absolute path. |
 
 > [!WARNING]
 > **Names are forwarded verbatim**

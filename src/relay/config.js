@@ -86,9 +86,10 @@ export function saveConfig(patch) {
  * validatePatch so a caller can report the reason rather than a generic failure.
  */
 export function updateSettings(patch) {
-  const checked = validatePatch(patch);
+  const current = loadConfig();
+  const checked = validatePatch(patch, { current });
   if (!checked.ok) return checked;
-  const next = { ...loadConfig(), ...checked.value };
+  const next = { ...current, ...checked.value };
   writeAll(next);
   return { ok: true, value: next, changed: Object.keys(checked.value) };
 }

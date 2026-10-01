@@ -23,12 +23,14 @@
  */
 
 import { loadConfig, saveConfig, updateSettings, isLinked, storedOverrides, CONFIG_FILE } from "../relay/config.js";
-import { resolveLocalTarget, discoverLocalModels, buildLocalCapability, localStatus } from "../relay/local.js";
+import { resolveLocalTarget, buildLocalCapability, localStatus } from "../relay/local.js";
 import { configCommand } from "./config-command.js";
 import { mcpCommand } from "./mcp-command.js";
 import { cmdChat, cmdBalance, cmdDeposit, cmdPay, cmdAgents } from "./renter-command.js";
 import { localWalletCommand } from "./localwallet-command.js";
 import { printQr } from "./qr.js";
+import { localCommand } from "./local-command.js";
+import { ensureEngine, stopManagedEngine } from "../local/engine.js";
 import { setupCommand, runCommand, envCommand, doctorCommand, detectCommand, setupRemove, setupRefresh, toolsSetUp, isInstalled } from "./setup-command.js";
 import { loadManifest } from "../setup/manifest.js";
 import { makeCtx, webOrigin } from "../setup/ctx.js";
@@ -87,6 +89,9 @@ const BOOLEAN_FLAGS = new Set([
   "anthropic", "no-encrypt",
   // `aile wallet --qr --json` must not read "--json" as the value of --qr.
   "qr", "no-qr",
+  // `aile local setup --yes --start` must not read the next flag as a value,
+  // nor `aile local rm x --keep-base --yes` swallow the `--yes`.
+  "start", "no-start", "cpu", "force", "keep-base",
 ]);
 
 function parseArgs(argv) {
@@ -1783,6 +1788,11 @@ async function cmdStart(args) {
 
   const accounts = me ? me.accounts || [] : null;
   const local = Boolean(config.localEnabled && config.localEndpoint);
+  // An engine aile set up (`aile local setup`) is started here, before the
+  // header reads whether it answers. An external server is the owner's to run.
+  const engine = local && config.localEngine !== "external"
+    ? await withSpinner("Starting the model server…", ensureEngine(config, { log: (m) => console.error(`${C.dim}${m}${C.reset}`) }))
+    : null;
   // Whether the model server answers, not just whether one is configured: a
   // stopped (or never-installed) Ollama is listed as nothing, and the header is
   // where the lender learns that. Seeded into the node so its log does not say
@@ -1802,7 +1812,8 @@ async function cmdStart(args) {
       : ["Accounts", `${C.yellow}none${C.reset} ${C.dim}· serves nothing until you run${C.reset} ${C.cyan}aile connect${C.reset}`],
     ["Relay", `subscription traffic, relayed blind ${C.dim}· ${config.maxConcurrent} streams at once${C.reset}`],
     !localNow ? null
-      : localNow.state === "up" ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}this machine reads those prompts${C.reset}`]
+      : engine?.error ? ["Local AI", `${C.red}not started${C.reset} ${C.dim}${engine.error.replace(/`([^`]+)`/g, `${C.reset}${C.cyan}$1${C.reset}${C.dim}`)}${C.reset}`]
+      : localNow.state === "up" ? ["Local AI", `${engine ? `${{ ollama: "Ollama", llamacpp: "llama.cpp" }[engine.engine] || engine.engine} ${C.dim}·${C.reset} ` : ""}${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}this machine reads those prompts${C.reset}`]
       : localNow.state === "down" ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}not answering${C.reset} ${C.dim}· ${localModels} listed once it does${C.reset}`]
       : ["Local AI", `${C.red}misconfigured${C.reset} ${C.dim}${localNow.reason}${C.reset}`],
     mcp.configError ? ["MCP", `${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`]
@@ -1818,10 +1829,15 @@ async function cmdStart(args) {
   const shutdown = (sig) => {
     console.log(`\n${C.dim}stopping (${sig})…${C.reset}`);
     stopRelayAgent(sig);
+    stopManagedEngine();
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
+  // A closed terminal (and, on Windows, a closed console window) arrives as
+  // SIGHUP. Without a handler the process dies without its exit hooks and a
+  // managed llama-server is left running on its port.
+  process.on("SIGHUP", () => shutdown("SIGHUP"));
 
   try {
     await startRelayAgent();
@@ -2183,84 +2199,6 @@ async function cmdWallet(args) {
   console.log(`  encrypted; the server relays ciphertext it cannot read.${C.reset}`);
   console.log(`  ${C.dim}Withdrawals are signed on your instruction with your browser session. If`);
   console.log(`  you turn on two-step verification, they ask for a code as well.${C.reset}\n`);
-}
-
-/**
- * Set up (or inspect) self-hosted model lending.
- *
- *   aile local                      show current state
- *   aile local http://…:11434       point at an endpoint and turn it on
- *   aile local --off                stop lending it
- *
- * A dedicated command rather than three `aile config` writes, because turning
- * this on changes the privacy story and that deserves saying out loud once, in
- * the place where the decision is actually made.
- */
-async function cmdLocal(args) {
-  banner();
-  const config = loadConfig();
-
-  if (args.off) {
-    const res = updateSettings({ localEnabled: false });
-    if (!res.ok) die(res.error);
-    console.log(`\n${C.green}Self-hosted lending is off.${C.reset} ${C.dim}The endpoint is remembered.${C.reset}\n`);
-    return;
-  }
-
-  const endpoint = args._[1] || args.endpoint;
-
-  if (!endpoint) {
-    if (!config.localEnabled || !config.localEndpoint) {
-      console.log(`\n${C.dim}Not lending a self-hosted model.${C.reset}\n`);
-      console.log(`Lend one with: ${C.cyan}aile local http://127.0.0.1:11434${C.reset}`);
-      console.log(`${C.dim}Works with Ollama, vLLM, LM Studio, llama.cpp — anything`);
-      console.log(`speaking the OpenAI API.${C.reset}\n`);
-      return;
-    }
-    console.log(`\n  Endpoint:  ${C.cyan}${config.localEndpoint}${C.reset}`);
-    const now = await localStatus(config);
-    console.log(`  Status:    ${now.state === "up" ? `${C.green}answering${C.reset}`
-      : now.state === "down" ? `${C.yellow}not answering${C.reset} ${C.dim}(${now.reason}) · listed once it does${C.reset}`
-      : `${C.red}misconfigured${C.reset} ${C.dim}${now.reason}${C.reset}`}`);
-    const models = await discoverLocalModels(config);
-    console.log(`  Models:    ${models.length ? models.join(", ") : `${C.yellow}none found${C.reset}`}`);
-    if (models.length && now.state === "up") console.log(`  Buyers:    ${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
-    console.log(`  Privacy:   ${C.yellow}not blind${C.reset} ${C.dim}— requests run here, so this machine reads them${C.reset}\n`);
-    return;
-  }
-
-  // Validate before saving. Writing a value that cannot serve, then reporting
-  // success, would leave the user debugging a node that silently never gets work.
-  let target;
-  try {
-    target = await resolveLocalTarget(endpoint);
-  } catch (e) {
-    die(`That endpoint will not work: ${e.message}`);
-  }
-
-  const res = updateSettings({ localEndpoint: endpoint, localEnabled: true });
-  if (!res.ok) die(res.error);
-
-  console.log(`\n${C.green}Lending your self-hosted model${C.reset} ${C.dim}${endpoint}${C.reset}`);
-
-  const models = await discoverLocalModels(res.value);
-  const now = await localStatus(res.value);
-  if (now.state === "down") {
-    // Named models used to be reported as advertised whether or not anything
-    // ran them; the node now lists them only while the endpoint answers.
-    console.log(`${C.yellow}Nothing answers there yet${C.reset} ${C.dim}(${now.reason}). ${models.length ? models.join(", ") : "Its models"} will be listed once it does.${C.reset}`);
-  } else if (models.length) {
-    console.log(`${C.dim}Advertising: ${models.join(", ")}${C.reset}`);
-    console.log(`${C.dim}Buyers send: ${C.reset}${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
-  } else {
-    console.log(`${C.yellow}Could not list models${C.reset} ${C.dim}at ${target.host}:${target.port}.${C.reset}`);
-    console.log(`${C.dim}Start it, or name them: ${C.reset}${C.cyan}aile config localModels llama3,mistral${C.reset}`);
-  }
-
-  console.log(`\n${C.yellow}Worth knowing:${C.reset} this traffic is ${C.yellow}not blind${C.reset}.`);
-  console.log(`${C.dim}The model runs on this machine, so this machine reads the prompts it`);
-  console.log(`answers. Subscription traffic is unaffected and stays blind.${C.reset}`);
-  console.log(`\nStart serving: ${C.cyan}aile start${C.reset}\n`);
 }
 
 /**
@@ -3098,6 +3036,7 @@ async function home(args) {
       ["detect", "See installed tools", "what is on this machine, and where"],
       ...(lender
         ? [["connect", "Connect an AI account", "lend a subscription or an API key"],
+          ["local", "Lend a model on this machine", "download one, run it here, lend it"],
           ["start", "Start lending", "run this machine as a relay node"],
           ["wallet", "Wallet", "balance, and where earnings land"]]
         : [["login", "Sign in to lend", "get paid for spare capacity"]]),
@@ -3120,6 +3059,10 @@ async function home(args) {
     if (id === "setup") await setupCommand(sub);
     else if (id === "detect") await detectCommand(sub);
     else if (id === "connect") await cmdConnect(sub);
+    else if (id === "local") {
+      const set = config.localEndpoint || config.localEngine !== "external";
+      await localCommand({ ...sub, _: set ? ["local"] : ["local", "setup"] }, { banner: () => {}, startNode: null });
+    }
     else if (id === "wallet") await cmdWallet(sub);
     else if (id === "login") await cmdLogin(sub);
     else if (id === "doctor") { await doctorCommand(sub); process.exitCode = 0; }
@@ -3191,7 +3134,7 @@ try {
     case "price": case "quote": await cmdPrice(args); break;
     case "spend": await cmdSpend(args); break;
     case "start": await cmdStart(args); break;
-    case "local": await cmdLocal(args); break;
+    case "local": await localCommand(args, { banner, startNode: cmdStart }); break;
     case "mcp": await mcpCommand(args); break;
     // `aile wallet own …` is the opt-in self-custody wallet and a separate
     // module; bare `aile wallet` stays the account's custodial view, unchanged.

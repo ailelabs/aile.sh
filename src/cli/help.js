@@ -237,12 +237,26 @@ export const COMMANDS = [
     examples: [["aile disconnect 2", "by number, not by id"], ["aile disconnect 2 --yes", "without the confirmation"]],
   },
   {
-    name: "local", group: "lend", summary: "lend a model running on this machine",
+    name: "local", group: "lend", summary: "download a model, run it here, and lend it",
     examples: [
-      ["aile local http://127.0.0.1:11434", "Ollama, vLLM, LM Studio, llama.cpp"],
+      ["aile local setup", "one command: engine, model, test, lend"],
+      ["aile local", "what is set up, and what it sells as"],
+      ["aile local models", "models that download and sell, and which fit here"],
+      ["aile local pull qwen/qwen3-8b", "download one (a curated id or an Ollama tag)"],
+      ["aile local pull hf.co/<user>/<repo>", "any GGUF on Hugging Face (add :Q8_0 for a quant)"],
+      ["aile local list", "what is downloaded"],
+      ["aile local run <model> \"hi\"", "talk to it; no prompt opens a chat"],
+      ["aile local rm <model>", "delete one"],
+      ["aile local install llamacpp", "the engine that needs no install of its own"],
+      ["aile local on", "offer it to buyers"],
       ["aile local --off", "stop lending it"],
+      ["aile local http://127.0.0.1:1234", "lend a server you already run (vLLM, LM Studio, …)"],
     ],
-    notes: ["This traffic is not blind — it runs on your machine, so your machine reads those prompts."],
+    notes: [
+      "Engines: Ollama by default; llama.cpp (`--engine llamacpp`) when Ollama cannot be installed — aile downloads it and runs it only while `aile start` runs.",
+      "A model sells only under a name with a published list price. The curated models are saved under that name; anything else runs here but may not sell. Downloads are 4-bit builds sold under the full model's id.",
+      "This traffic is not blind — it runs on your machine, so your machine reads those prompts.",
+    ],
   },
   {
     name: "mcp", group: "lend", summary: "lend your own MCP tools to other agents, from this machine",
@@ -428,7 +442,7 @@ export function overview() {
     tools: ["setup", "detect", "run", "doctor"],
     use: ["chat", "agents", "lenders", "price", "spend"],
     wallet: ["balance", "deposit", "wallet"],
-    lend: ["login", "connect", "start", "status"],
+    lend: ["login", "connect", "local", "start", "status"],
     account: ["config", "update"],
   };
   const usage = (c) => ({

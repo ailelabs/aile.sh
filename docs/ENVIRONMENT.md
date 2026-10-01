@@ -70,6 +70,19 @@ The approval page then identifies the request only by its code.
 | `AILE_NO_SPINNER` | Set to `1` to turn off spinners. |
 | `AILE_DEBUG` | Set to `1` to print the full error behind a one-line failure message. |
 
+## Self-hosted models
+
+Read by `aile local` and, for an engine aile manages, `aile start`.
+
+| Variable | Effect |
+|---|---|
+| `HF_TOKEN` | Hugging Face token, for a gated or private repo. Read from the environment, sent only to huggingface.co, never saved. |
+| `OLLAMA_HOST` | Where Ollama listens, as Ollama itself reads it. `0.0.0.0` is reached on `127.0.0.1`. |
+| `OLLAMA_MODELS` | Ollama's model folder, used for the free-disk check. |
+| `AILE_LLAMA_SERVER_BIN` | Use your own `llama-server` build instead of downloading the pinned one. |
+| `AILE_HF_URL` | A Hugging Face mirror (https). |
+| `AILE_LOCAL_HW` | JSON that replaces detected hardware, for a GPU the probes miss: `{"vramBytes": 24000000000, "accel": "cuda"}`. |
+
 ## Your own wallet
 
 Read only by your optional own wallet (`aile wallet own`). The first two are the

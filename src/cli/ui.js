@@ -257,4 +257,120 @@ export async function withSpinner(text, work, opts) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------
+
+/** `1536` → "1.5 KB". Decimal units, as download sizes are quoted everywhere. */
+export function formatBytes(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 0) return "?";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let x = v;
+  while (x >= 1000 && i < units.length - 1) { x /= 1000; i++; }
+  return `${i === 0 ? x : x >= 100 ? x.toFixed(0) : x.toFixed(1)} ${units[i]}`;
+}
+
+/** `95` → "1m 35s". Whole seconds; nothing finer is worth reading. */
+export function formatDuration(seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
+/**
+ * A progress bar for work with a size — a download, a hash — on stderr.
+ *
+ * The same rules as the spinner: drawn only where a person is watching stderr
+ * (and `AILE_NO_SPINNER` is not set), cursor restored on every exit path, and
+ * stdout never touched, so `--json` output stays clean. Off a terminal it
+ * writes one plain line at each tenth (or every 30 s when the size is unknown),
+ * which is what a log or a CI run wants instead of a redraw per chunk.
+ *
+ * `update(done, total?)` is cheap to call per chunk: redraws are throttled.
+ */
+export function progress(label, { stream = process.stderr, total = null, now = () => Date.now() } = {}) {
+  const live = Boolean(stream?.isTTY) && process.env.AILE_NO_SPINNER !== "1";
+  const glyph = UNICODE_OK ? { full: "█", empty: "░" } : { full: "#", empty: "-" };
+  let text = label;
+  let tot = total;
+  let done = 0;
+  let rate = 0;
+  let sampleAt = now();
+  let sampleDone = 0;
+  let drawnAt = 0;
+  let lastTenth = -1;
+  let lineAt = now();
+  let closed = false;
+
+  const pct = () => (tot ? Math.min(100, Math.floor((done / tot) * 100)) : null);
+  const stats = () => {
+    const parts = [];
+    parts.push(tot ? `${formatBytes(done)}/${formatBytes(tot)}` : formatBytes(done));
+    if (rate > 0) parts.push(`${formatBytes(rate)}/s`);
+    if (rate > 0 && tot && done < tot) parts.push(`${formatDuration((tot - done) / rate)} left`);
+    return parts.join("  ");
+  };
+  const draw = () => {
+    const p = pct();
+    const tail = `${p === null ? "" : `${String(p).padStart(3)}%  `}${stats()}`;
+    const room = termWidth(stream) - width(text) - width(tail) - 6;
+    const barW = Math.max(0, Math.min(30, room));
+    const bar = p === null || barW < 8 ? "" : `${C.cyan}${glyph.full.repeat(Math.round((barW * p) / 100))}${C.reset}${C.dim}${glyph.empty.repeat(barW - Math.round((barW * p) / 100))}${C.reset} `;
+    stream.write(`\r\x1b[2K${text} ${bar}${dim(tail)}`);
+  };
+  const onExit = () => restoreCursor(stream);
+  if (live) {
+    stream.write(HIDE);
+    cursorHidden = true;
+    process.on("exit", onExit);
+    draw();
+  }
+  const close = () => {
+    if (closed) return false;
+    closed = true;
+    if (live) {
+      stream.write("\r\x1b[2K");
+      restoreCursor(stream);
+      process.off("exit", onExit);
+    }
+    return true;
+  };
+
+  const p = {
+    update(d, t = undefined) {
+      if (closed) return p;
+      if (t !== undefined && t !== null) tot = t;
+      done = d;
+      const at = now();
+      if (at - sampleAt >= 500) {
+        const inst = ((done - sampleDone) * 1000) / (at - sampleAt);
+        rate = rate ? rate * 0.7 + inst * 0.3 : inst;
+        sampleAt = at;
+        sampleDone = done;
+      }
+      if (live) {
+        if (at - drawnAt >= 100) { drawnAt = at; draw(); }
+      } else {
+        const v = pct();
+        const tenth = v === null ? null : Math.floor(v / 10);
+        if ((tenth !== null && tenth > lastTenth && tenth < 10) || (tenth === null && at - lineAt >= 30_000)) {
+          lastTenth = tenth ?? lastTenth;
+          lineAt = at;
+          stream.write(`  ${text}: ${v === null ? "" : `${v}%  `}${stats()}\n`);
+        }
+      }
+      return p;
+    },
+    label(t) { text = t; if (live && !closed) draw(); return p; },
+    stop() { close(); return p; },
+    // Indented like the `ok`/`warn` lines a command prints around it.
+    succeed(t = text) { if (close()) stream.write(`${ok(t)}\n`); return p; },
+    fail(t = text) { if (close()) stream.write(`${bad(t)}\n`); return p; },
+  };
+  return p;
+}
+
 export { C, COLOR };
