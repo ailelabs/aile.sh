@@ -45,6 +45,37 @@ export const CONTAINER_PREFIX = "aile-mcp-";
 const RUNTIMES = ["docker", "podman"];
 
 /**
+ * What the runtime CLI itself reads to find its daemon, its config and its
+ * storage: rootless Podman needs XDG_RUNTIME_DIR or HOME, rootless Docker
+ * DOCKER_HOST, Colima and Rancher Desktop a context, a Windows process
+ * SystemRoot, and Podman on Windows APPDATA (its machine connections live
+ * there). None is a secret, and none reaches the container: only a
+ * server's declared names are copied in, by `--env NAME`. Named one by one,
+ * never a DOCKER_* prefix — DOCKER_CONTENT_TRUST_*_PASSPHRASE is a secret.
+ */
+const RUNTIME_ENV = [
+  "HOME", "USERPROFILE", "SystemRoot", "APPDATA", "LOCALAPPDATA",
+  "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+  "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH",
+  "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_API_VERSION",
+  "CONTAINER_HOST", "CONTAINER_CONNECTION",
+  "CONTAINERS_CONF", "CONTAINERS_STORAGE_CONF", "CONTAINERS_REGISTRIES_CONF",
+  "PODMAN_CONNECTIONS_CONF", "REGISTRY_AUTH_FILE",
+];
+
+/**
+ * The runtime CLI's environment, constructed — never the node's, which holds
+ * this machine's account token: PATH, then each RUNTIME_ENV name the node has.
+ * Every call to the runtime uses it, so detection answers for the same
+ * environment a rented session runs in.
+ */
+function runtimeEnv() {
+  const env = { PATH: process.env.PATH };
+  for (const name of RUNTIME_ENV) if (process.env[name] !== undefined) env[name] = process.env[name];
+  return env;
+}
+
+/**
  * Is a container runtime usable right now?
  *
  * Returns `{ ok, runtime, state, message }` where state is one of:
@@ -59,10 +90,12 @@ export function detectRuntime({ runtimes = RUNTIMES, run = spawnSync } = {}) {
   let sawCli = false;
   let lastMessage = "";
 
+  const env = runtimeEnv();
   for (const runtime of runtimes) {
     let res;
     try {
       res = run(runtime, ["version", "--format", "{{.Server.Version}}"], {
+        env,
         encoding: "utf8",
         timeout: 10000,
         windowsHide: true,
@@ -174,7 +207,7 @@ export function describeEgress(server) {
  * Returns `{ child, name, kill }`. The caller owns the byte pumping — this
  * module's whole job is the box, not the protocol.
  */
-export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, detect = detectRuntime, log = console } = {}) {
+export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, killImpl = spawnSync, detect = detectRuntime, log = console } = {}) {
   // `detect` is injectable so the no-runtime refusal can be tested on a machine
   // where Docker happens to be running. A test whose verdict depends on the
   // developer's daemon is not a test of this rule.
@@ -193,11 +226,16 @@ export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, dete
     );
   }
 
+  // The runtime CLI's env: runtimeEnv() (PATH and the runtime's own
+  // connection variables, never the node's account token), then this
+  // server's declared values. Those go last because `--env NAME` copies
+  // them into the container from here: a declared HOME must reach the
+  // container, not the lender's own. Built once and reused by `kill`, so a
+  // declared HOME/DOCKER_HOST that picked the daemon or rootless storage for
+  // `run` picks the same one for `kill`.
+  const cliEnv = { ...runtimeEnv(), ...server.env };
   const child = spawnImpl(bin, args, {
-    // The ONLY environment the runtime process gets: PATH so the binary can
-    // find its own helpers, plus this server's declared values. Not the node's
-    // environment, which holds this machine's account token.
-    env: { PATH: process.env.PATH, ...server.env },
+    env: cliEnv,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -211,7 +249,7 @@ export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, dete
     // what actually stops the workload — killing the CLI alone can leave it
     // running detached.
     try {
-      spawnSync(bin, ["kill", name], { timeout: 10000, windowsHide: true, stdio: "ignore" });
+      killImpl(bin, ["kill", name], { env: cliEnv, timeout: 10000, windowsHide: true, stdio: "ignore" });
     } catch { /* the container is already gone */ }
     try { child.kill(); } catch { /* already exited */ }
     log?.debug?.(`[MCP] ${name} stopped: ${reason}`);
@@ -227,12 +265,18 @@ export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, dete
  * a container running with a renter's session inside it. Reaping at startup
  * bounds that to one crash rather than one per crash, and the name prefix
  * scopes it strictly to our own — nothing else on the machine is touched.
+ *
+ * Residual: it runs in runtimeEnv() alone, since a past session's declared env
+ * is unknown here, so a container started under a server that declared a
+ * connection variable (DOCKER_HOST, XDG_RUNTIME_DIR, HOME, …) on another
+ * daemon or storage is not seen and keeps running until stopped by hand.
  */
 export function reapOrphans({ runtime = null, run = spawnSync, log = console } = {}) {
   const detected = runtime ? { ok: true, runtime } : detectRuntime({ run });
   if (!detected.ok) return { reaped: [], skipped: detected.state };
 
   const listed = run(detected.runtime, ["ps", "-q", "--filter", `name=^${CONTAINER_PREFIX}`], {
+    env: runtimeEnv(),
     encoding: "utf8",
     timeout: 15000,
     windowsHide: true,
@@ -242,7 +286,7 @@ export function reapOrphans({ runtime = null, run = spawnSync, log = console } =
   const ids = String(listed.stdout || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   const reaped = [];
   for (const id of ids) {
-    const res = run(detected.runtime, ["kill", id], { timeout: 15000, windowsHide: true, encoding: "utf8" });
+    const res = run(detected.runtime, ["kill", id], { env: runtimeEnv(), timeout: 15000, windowsHide: true, encoding: "utf8" });
     if (res?.status === 0) reaped.push(id);
   }
   if (reaped.length) log?.warn?.(`[MCP] reaped ${reaped.length} orphaned sandbox container(s)`);

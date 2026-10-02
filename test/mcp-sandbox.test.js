@@ -27,6 +27,26 @@ function flag(args, name) {
   return i === -1 ? null : args[i + 1];
 }
 
+/** Set env vars for one call and put every one back, absent ones included. */
+function withEnv(vars, fn) {
+  const saved = new Map();
+  for (const [k, v] of Object.entries(vars)) { saved.set(k, process.env[k]); process.env[k] = v; }
+  try { return fn(); } finally {
+    for (const [k, v] of saved) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
+/** What the runtime CLI may take from the node. Pinned here, so adding a name is a deliberate edit. */
+const RUNTIME_NAMES = [
+  "HOME", "USERPROFILE", "SystemRoot", "APPDATA", "LOCALAPPDATA", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+  "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS",
+  "DOCKER_TLS_VERIFY", "DOCKER_API_VERSION", "CONTAINER_HOST", "CONTAINER_CONNECTION",
+  "CONTAINERS_CONF", "CONTAINERS_STORAGE_CONF", "CONTAINERS_REGISTRIES_CONF", "PODMAN_CONNECTIONS_CONF",
+  "REGISTRY_AUTH_FILE",
+];
+const NODE_SECRET = { AILE_TOKEN: "ail_node_secret" };
+const fakeChild = () => ({ stdout: {}, stderr: {}, stdin: {}, kill() {} });
+
 describe("buildRunArgs", () => {
   const args = buildRunArgs(server, { name: "aile-mcp-srv-1-abcd" });
 
@@ -148,6 +168,14 @@ describe("detectRuntime", () => {
     });
     expect(r).toMatchObject({ ok: true, runtime: "podman", state: "running" });
   });
+
+  it("asks in the same environment a rented session runs in", () => {
+    let opts = null;
+    withEnv({ DOCKER_HOST: "unix:///run/user/1000/docker.sock", ...NODE_SECRET }, () =>
+      detectRuntime({ run: (bin, args, o) => { opts = o; return { status: 0, stdout: "27.1.1" }; } }));
+    expect(opts.env.DOCKER_HOST).toBe("unix:///run/user/1000/docker.sock");
+    expect("AILE_TOKEN" in opts.env).toBe(false);
+  });
 });
 
 describe("spawnServer", () => {
@@ -174,17 +202,71 @@ describe("spawnServer", () => {
     });
     let seen = null;
     const child = { stdout: {}, stderr: {}, stdin: {}, kill() {} };
-    spawnServer(withSecret, {
+    withEnv(NODE_SECRET, () => spawnServer(withSecret, {
       streamId: 1,
       runtime: "docker",
       log: { warn() {}, debug() {} },
       spawnImpl: (bin, args, opts) => { seen = { bin, args, opts }; return child; },
-    });
+    }));
     expect(seen.bin).toBe("docker");
     expect(seen.args.join(" ")).not.toContain("sk-ant-secret");
     expect(seen.opts.env.ANTHROPIC_API_KEY).toBe("sk-ant-secret");
     // Not the node's own environment: that holds this machine's account token.
-    expect(Object.keys(seen.opts.env).sort()).toEqual(["ANTHROPIC_API_KEY", "PATH"]);
+    expect("AILE_TOKEN" in seen.opts.env).toBe(false);
+    for (const k of Object.keys(seen.opts.env)) expect(["ANTHROPIC_API_KEY", "PATH", ...RUNTIME_NAMES]).toContain(k);
+  });
+
+  it("gives the runtime CLI what it needs to reach its daemon, and the container none of it", () => {
+    // With PATH alone, rootless Podman/Docker and a Docker context
+    // could not find their daemon, so every rented session exited at once.
+    const conn = {
+      DOCKER_HOST: "unix:///run/user/1000/docker.sock", DOCKER_CONTEXT: "colima",
+      XDG_RUNTIME_DIR: "/run/user/1000", HOME: "/home/lender", SystemRoot: "C:\\Windows",
+      APPDATA: "C:\\Users\\lender\\AppData\\Roaming",
+      // Podman's private-registry credentials file: a path, not a secret.
+      REGISTRY_AUTH_FILE: "/home/lender/.config/containers/auth.json",
+    };
+    let seen = null;
+    withEnv({ ...conn, ...NODE_SECRET }, () => spawnServer(server, {
+      streamId: 1, runtime: "docker", log: { warn() {}, debug() {} },
+      spawnImpl: (bin, args, opts) => { seen = { args, opts }; return fakeChild(); },
+    }));
+    for (const [k, v] of Object.entries(conn)) expect(seen.opts.env[k]).toBe(v);
+    expect("AILE_TOKEN" in seen.opts.env).toBe(false);
+    // The container gets none of them: only a declared name is passed by --env.
+    expect(seen.args).not.toContain("--env");
+  });
+
+  it("a declared value beats the node's own for the same name", () => {
+    const homed = normalizeServer({ id: "srv", image: "alpine:3", env: { HOME: "/tmp" } });
+    let seen = null;
+    withEnv({ HOME: "/home/lender" }, () => spawnServer(homed, {
+      streamId: 1, runtime: "docker", log: { warn() {}, debug() {} },
+      spawnImpl: (bin, args, opts) => { seen = { args, opts }; return fakeChild(); },
+    }));
+    expect(seen.opts.env.HOME).toBe("/tmp");
+    expect(flag(seen.args, "--env")).toBe("HOME");
+  });
+
+  it("kills in the same environment it ran in, so it reaches the same daemon", () => {
+    // A declared DOCKER_HOST picked the daemon `run` used; a `kill` in the
+    // node's own env would ask another one and leave the container running.
+    const pinned = normalizeServer({ id: "srv", image: "alpine:3", env: { DOCKER_HOST: "tcp://10.0.0.5:2375" } });
+    let spawned = null;
+    const kills = [];
+    withEnv({ DOCKER_HOST: "unix:///var/run/docker.sock", ...NODE_SECRET }, () => {
+      const s = spawnServer(pinned, {
+        streamId: 1, runtime: "docker", log: { warn() {}, debug() {} },
+        spawnImpl: (bin, args, opts) => { spawned = opts.env; return fakeChild(); },
+        killImpl: (bin, args, opts) => { kills.push({ args, env: opts.env }); },
+      });
+      s.kill();
+    });
+    expect(kills.length).toBe(1);
+    expect(kills[0].args[0]).toBe("kill");
+    expect(kills[0].env).toEqual(spawned);
+    expect(kills[0].env.DOCKER_HOST).toBe("tcp://10.0.0.5:2375");
+    expect("AILE_TOKEN" in kills[0].env).toBe(false);
   });
 
   it("warns out loud when a declared host list is not enforced", () => {
@@ -203,17 +285,22 @@ describe("spawnServer", () => {
 describe("reapOrphans", () => {
   it("kills only containers carrying this node's own prefix", () => {
     const calls = [];
-    const res = reapOrphans({
+    const envs = [];
+    const res = withEnv(NODE_SECRET, () => reapOrphans({
       runtime: "docker",
       log: { warn() {} },
-      run: (bin, args) => {
+      run: (bin, args, o) => {
         calls.push(args);
+        envs.push(o?.env);
         if (args[0] === "ps") return { status: 0, stdout: "abc123\ndef456\n" };
         return { status: 0 };
       },
-    });
+    }));
     expect(calls[0]).toEqual(["ps", "-q", "--filter", `name=^${CONTAINER_PREFIX}`]);
     expect(res.reaped).toEqual(["abc123", "def456"]);
+    // One ps and two kills, each in the constructed env, never the node's.
+    expect(envs.length).toBe(3);
+    for (const e of envs) { expect(e).toBeDefined(); expect("AILE_TOKEN" in e).toBe(false); }
   });
 
   it("does nothing at all when there is no runtime", () => {

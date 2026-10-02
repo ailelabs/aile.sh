@@ -71,6 +71,16 @@ a patch bump fixes something.
   reads again until the server answers. It used to advertise none and earn
   nothing until it next reconnected. A sign-in the server refuses still
   advertises no accounts.
+- A rented MCP server now starts on rootless Podman, rootless Docker and
+  a non-default Docker context (Colima, Rancher Desktop), and should on
+  Podman on Windows (untested). The container runtime gets its own connection settings (`HOME`,
+  `APPDATA`, `XDG_RUNTIME_DIR`, `DOCKER_HOST`, `DOCKER_CONTEXT`,
+  `DOCKER_CONFIG`, `REGISTRY_AUTH_FILE` and a few more), never your account
+  token, and the container still sees none of them. It used to get `PATH`
+  alone, so `aile mcp` said the runtime was running and every rental then
+  failed; the check now runs with the same settings. Ending a session stops
+  its container on the same daemon it was started on, even when the server
+  declares its own `DOCKER_HOST` or `HOME`.
 
 ## [1.2.0] - 2026-09-27
 
