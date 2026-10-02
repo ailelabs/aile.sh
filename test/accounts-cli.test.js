@@ -393,6 +393,54 @@ describe("the plan tier, where the provider signed one", () => {
   });
 });
 
+/**
+ * What each account lists, counted by the server's own model status.
+ *
+ * The roll-up is the only place `aile accounts` says anything about models, and
+ * `null` is the server saying it could not read them — which must not read as
+ * "0 listed", because that tells a lender their models vanished.
+ */
+describe("the model roll-up", () => {
+  const rollUp = (over) => ({ listed: 0, untested: 0, failed: 0, cannotSell: 0, off: 0, ...over });
+  const listWith = async (models) => {
+    stub.stop();
+    stub = stubServer({
+      accounts: [{ id: "eeee5555", provider: "codex", account_key: "default", label: "Counted", email: null, attested: 1, models }],
+    });
+    return run(["accounts"], { data: signedInData(stub.url) });
+  };
+  const modelsLine = (stdout) => stdout.split("\n").find((l) => /^\s+models\s/.test(l));
+
+  it("counts listed, untested and failed on the account's own block", async () => {
+    const { stdout } = await listWith(rollUp({ listed: 3, untested: 5, failed: 1 }));
+    expect(modelsLine(stdout)).toContain("3 listed · 5 untested · 1 failed");
+    // Inside the account's block: after its name, before its id.
+    const lines = stdout.split("\n");
+    expect(lines.indexOf(modelsLine(stdout))).toBeGreaterThan(lines.findIndex((l) => l.includes("Counted")));
+    expect(lines.indexOf(modelsLine(stdout))).toBeLessThan(lines.findIndex((l) => l.includes("eeee5555")));
+  });
+
+  it("says 0 listed rather than nothing, and hides the other zeros", async () => {
+    const { stdout } = await listWith(rollUp({ untested: 4 }));
+    expect(modelsLine(stdout)).toMatch(/0 listed · 4 untested$/);
+  });
+
+  it("names the other two statuses when there are some", async () => {
+    const { stdout } = await listWith(rollUp({ listed: 1, cannotSell: 2, off: 6 }));
+    expect(modelsLine(stdout)).toContain("1 listed · 2 can't sell · 6 off");
+  });
+
+  it("shows a dash, not zero, when the server could not read them", async () => {
+    const { stdout } = await listWith(null);
+    expect(modelsLine(stdout)).toMatch(/models\s+—$/);
+  });
+
+  it("points at the rows", async () => {
+    const { stdout } = await listWith(rollUp({ listed: 1 }));
+    expect(stdout).toMatch(/Its models:\s+aile models 1/);
+  });
+});
+
 describe("removing by number", () => {
   it("removes the account at that position", async () => {
     const { code } = await run(["disconnect", "2"], { data });

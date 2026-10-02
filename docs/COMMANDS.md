@@ -282,14 +282,41 @@ Name an account. Aliased as `rename`.
 aile label 2 work-laptop
 ```
 
-### retest
+### models
 
-Ask the server to re-probe a credential. Aliased as `recheck`. With no number it
-retests everything.
+What an account lists, and why a model does not: listed, untested, failed, can't
+sell or off, each with the server's reason.
 
 ```bash
-aile retest
-aile retest 3
+aile models 3
+aile models 3 --json
+```
+
+### test
+
+Test an account's models so they list. It runs the same test as the dashboard's
+*Test* button: one small request per model on the account's own quota.
+
+```bash
+aile test 3                      # every untested model
+aile test 3 gpt-5.5 gpt-5.4      # just these
+aile test 3 <image model> --yes  # renders output and bills the account
+aile test 3 --timeout 300        # wait up to 300 s per call (default 120)
+```
+
+Image, video and music models are tested only when named, and a lone one asks
+first. More than 25 untested models asks first too; `--yes` skips it (needed off
+a terminal). A timeout is not a failure: the server may still be testing, so check
+`aile models` before running it again.
+
+### check-key
+
+Ask the server to re-probe a credential. Aliased as `retest` and `recheck`. With
+no number it checks everything.
+
+```bash
+aile check-key
+aile check-key 3
 ```
 
 Each account prints `works`, `rejected` or `no answer` (no healthy egress to test
@@ -297,8 +324,8 @@ through), with the server's reason, e.g. `refused-on-serve` for a key a provider
 refused on a real request, which a passing check cannot clear.
 
 This updates the **live** half of an account's status (`working` / `failing` /
-`unchecked`). It cannot change the identity half. See
-[Verification](https://aile.sh/docs/concepts/verification).
+`unchecked`). It does not test models; `aile test` does. It cannot change the
+identity half. See [Verification](https://aile.sh/docs/concepts/verification).
 
 An API key the provider refused on a real request reads `rejected`
 (`refused-on-serve`) even when the key check passes. It clears once a request on

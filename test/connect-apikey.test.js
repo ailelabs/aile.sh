@@ -461,7 +461,7 @@ describe("the next step after connecting", () => {
   it("says to serve it through Aile, not `aile start`, when it was linked without --nodeless", async () => {
     const { code, all } = await connectCloudflare([]);
     expect(code).toBe(0);
-    expect(all).toContain("Serves only through Aile: re-run with --nodeless, or turn Nodeless on in the dashboard.");
+    expect(all).toContain("Serves only through Aile: re-run with --nodeless, or set Route to Direct in the dashboard.");
     expect(all).not.toMatch(/aile start/);
   });
 
@@ -471,6 +471,19 @@ describe("the next step after connecting", () => {
     expect(stub.uploads()[0].body.allowNodeless).toBe(true);
     expect(all).toMatch(/Serves without this machine/);
     expect(all).not.toMatch(/Serves only through Aile/);
+  });
+
+  // A nodeless link is never tested for you, and a model lists only after a passing test.
+  it("points a nodeless link at `aile test`, by the account's id", async () => {
+    const { code, all } = await connectCloudflare(["--nodeless"]);
+    expect(code).toBe(0);
+    expect(all).toContain("aile test acct-1");
+    expect(all).not.toMatch(/aile start/);
+  });
+
+  it("does not, for a link that is not nodeless", async () => {
+    const { all } = await connectCloudflare([]);
+    expect(all).not.toMatch(/aile test/);
   });
 });
 

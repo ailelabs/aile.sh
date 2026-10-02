@@ -103,9 +103,9 @@ describe("aile accounts — the serving line reads live presence, not the flag",
       serving: { via: "node", nodeId: HERE, online: true, nodeless: true, nodelessCapable: true },
     }]);
     const { stdout } = await run(["accounts"], data);
-    expect(stdout).toMatch(/serving through THIS machine/);
+    expect(stdout).toMatch(/route: this machine/);
     // nodeless true beside a live node → the honest "also reachable" aside.
-    expect(stdout).toMatch(/also reachable via Aile/);
+    expect(stdout).toMatch(/also Direct/);
   });
 
   it("names ANOTHER machine when a different node of yours carries it", async () => {
@@ -114,17 +114,17 @@ describe("aile accounts — the serving line reads live presence, not the flag",
       serving: { via: "node", nodeId: OTHER, online: true, nodeless: false, nodelessCapable: false },
     }]);
     const { stdout } = await run(["accounts"], data);
-    expect(stdout).toMatch(/serving through another of your machines/);
+    expect(stdout).toMatch(/route: another of your machines/);
     expect(stdout).not.toMatch(/THIS machine/);
   });
 
-  it("says nodeless when Aile serves it with no machine in the path", async () => {
+  it("says Direct when Aile serves it with no machine in the path", async () => {
     serve([{
       id: "aaaa0003", provider: "openrouter", account_key: "default", label: "Direct", attested: 0,
       serving: { via: "nodeless", nodeId: null, online: false, nodeless: true, nodelessCapable: true },
     }]);
     const { stdout } = await run(["accounts"], data);
-    expect(stdout).toMatch(/serving nodeless/);
+    expect(stdout).toMatch(/route: Direct/);
     expect(stdout).toMatch(/no machine in the path/);
   });
 
@@ -134,7 +134,7 @@ describe("aile accounts — the serving line reads live presence, not the flag",
       serving: { via: "none", nodeId: null, online: false, nodeless: false, nodelessCapable: false },
     }]);
     const { stdout } = await run(["accounts"], data);
-    expect(stdout).toMatch(/not serving/);
+    expect(stdout).toMatch(/no route/);
     // The way out is named, so the line is actionable rather than just a verdict.
     expect(stdout).toMatch(/aile start/);
   });
@@ -172,13 +172,13 @@ describe("the nodeless switch is offered only where it can be honoured", () => {
 });
 
 describe("back-compat — a relay too old to send a verdict", () => {
-  it("falls back to the raw flag: allow_nodeless true reads as nodeless", async () => {
+  it("falls back to the raw flag: allow_nodeless true reads as Direct", async () => {
     serve([{
       id: "cccc0001", provider: "openrouter", account_key: "default", label: "Legacy", attested: 0,
       allow_nodeless: true, // no `serving` — the un-upgraded server
     }]);
     const { stdout } = await run(["accounts"], data);
-    expect(stdout).toMatch(/serving nodeless/);
+    expect(stdout).toMatch(/route: Direct/);
   });
 
   it("falls back to NOT serving when the old flag is unset", async () => {
@@ -187,6 +187,6 @@ describe("back-compat — a relay too old to send a verdict", () => {
       // no `serving`, no flag
     }]);
     const { stdout } = await run(["accounts"], data);
-    expect(stdout).toMatch(/not serving/);
+    expect(stdout).toMatch(/no route/);
   });
 });

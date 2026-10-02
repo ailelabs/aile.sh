@@ -99,7 +99,7 @@ export function localTransition(prev, status, endpoint) {
   if (now === "down") {
     return prev === "up"
       ? `${C.yellow}${sym.warn}${C.reset} Local AI stopped answering ${C.dim}· ${where} · ${listNames(status.models)} unlisted until it's back${C.reset}`
-      : `${C.yellow}${sym.warn}${C.reset} Local AI not answering ${C.dim}· ${where} · ${listNames(status.models)} listed once it does${C.reset}`;
+      : `${C.yellow}${sym.warn}${C.reset} Local AI not answering ${C.dim}· ${where} · ${listNames(status.models)} listed after it answers a test probe${C.reset}`;
   }
   return `${C.red}${sym.fail}${C.reset} Local AI misconfigured ${C.dim}· ${status.reason}${C.reset}`;
 }

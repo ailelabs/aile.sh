@@ -42,9 +42,21 @@ a patch bump fixes something.
   `/v1/models` before it is sent.
 - `aile connect muse-code`: a Muse Code subscription, signed in with a device
   code. Meta's terms allow its credential in Muse Code only; you carry that risk.
+- `aile models <account>`: what an account lists, grouped as listed, untested, failed,
+  can't sell and off, each with the server's reason. `aile accounts` shows the count.
+- `aile test <account> [model ...]`: test an account's models so they list, the same
+  test as the dashboard's Test button. It spends the account's own quota; an image,
+  video or music model is tested only when named, and a lone one asks first. More
+  than 25 untested models ask first too (`--yes` skips it).
+  `--timeout <seconds>` sets the wait per call.
+- `aile connect` points a nodeless link at `aile test`, since it is not tested at link.
 
 ### Changed
 
+- A model lists after it passes a test, not after a buyer's request served it.
+  `aile check-key` (`retest` and `recheck` still work) only checks the credential.
+- The `aile lenders` and `aile start` wording for a self-hosted model says it is
+  listed after it answers a test probe.
 - `api.meta.ai`, `api.lyceum.technology` and `api.xkiro.com` are on the node's
   allowlist, so a node can serve Meta, Muse Code, Lyceum and xKiro accounts.
 

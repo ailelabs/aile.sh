@@ -311,6 +311,27 @@ export const api = {
     call(`/providers/${id}/probe`, { ...opts, method: "POST" }),
 
   /**
+   * Every model an account could sell, each with the server's ONE status (`status`,
+   * `reason`, `note`, `surface`, `testOk`) — computed once there, only printed here.
+   */
+  listAccountModels: ({ id, ...opts }) =>
+    call(`/providers/${id}/models`, opts),
+
+  /**
+   * Test models on one account: one small real request each, and a pass lists the
+   * model. It SPENDS THE ACCOUNT'S OWN QUOTA, and the call is not cheap in time —
+   * the server answers within ~30 s of wall clock plus one dial in flight (a lone
+   * render ~50 s), handing back what it did not reach as `deferred`. At most 25
+   * models per call.
+   *
+   * `timeoutMs` is above that: the server's 30 s budget plus one dial. A client
+   * timeout is NOT a failed test — the server may still be testing — so a caller
+   * must not re-send on one.
+   */
+  testAccountModels: ({ id, models, timeoutMs = 120_000, ...opts }) =>
+    call(`/providers/${id}/models/test`, { ...opts, timeoutMs, method: "POST", body: { models } }),
+
+  /**
    * Quota and usage for every linked account.
    *
    * The collection route, deliberately: `/providers/:id/usage` takes a CATALOG

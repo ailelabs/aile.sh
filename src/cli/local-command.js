@@ -230,7 +230,7 @@ async function showStatus(args) {
     : detected.kind === "llamacpp" ? "llama.cpp"
       : ENGINE_NAME[engine] || engine;
   const stateText = now.state === "up" ? `${C.green}answering${C.reset}`
-    : now.state === "down" ? `${C.yellow}not answering${C.reset} ${dim(`(${now.reason})${lending ? " · listed once it does" : ""}`)}`
+    : now.state === "down" ? `${C.yellow}not answering${C.reset} ${dim(`(${now.reason})${lending ? " · listed after it answers a test probe" : ""}`)}`
       : `${C.red}misconfigured${C.reset} ${dim(now.reason || "")}`;
   const offered = rows.filter((r) => r.offered);
 
@@ -1028,7 +1028,7 @@ async function legacyEndpoint(args, endpoint) {
   if (now.state === "down") {
     // Named models used to be reported as advertised whether or not anything
     // ran them; the node now lists them only while the endpoint answers.
-    console.log(`${C.yellow}Nothing answers there yet${C.reset} ${C.dim}(${now.reason}). ${models.length ? models.join(", ") : "Its models"} will be listed once it does.${C.reset}`);
+    console.log(`${C.yellow}Nothing answers there yet${C.reset} ${C.dim}(${now.reason}). ${models.length ? models.join(", ") : "Its models"} will be listed after it answers a test probe.${C.reset}`);
   } else if (models.length) {
     console.log(`${C.dim}Advertising: ${models.join(", ")}${C.reset}`);
     console.log(`${C.dim}Buyers send: ${C.reset}${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);

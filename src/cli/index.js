@@ -308,6 +308,38 @@ function accountTitle(a) {
 }
 
 /**
+ * The server's model statuses, in the order a lender reads them: `[status, title,
+ * roll-up key]`. The status is computed there (lib/modelStatus.ts) and only grouped
+ * here, so the dashboard, MCP and this cannot disagree about what is listed.
+ */
+const MODEL_GROUPS = [
+  ["listed", "Listed", "listed"],
+  ["untested", "Untested", "untested"],
+  ["failed", "Failed", "failed"],
+  ["cannot_sell", "Can't sell", "cannotSell"],
+  ["off", "Off", "off"],
+];
+
+/** A row's status; one the server did not send (an older API) reads as untested, as on the dashboard. */
+const statusOf = (row) => (MODEL_GROUPS.some(([s]) => s === row.status) ? row.status : "untested");
+
+/** `{listed, untested, …}` counted from rows, in the shape `GET /providers` rolls up. */
+const countByStatus = (rows) =>
+  Object.fromEntries(MODEL_GROUPS.map(([s, , key]) => [key, rows.filter((r) => statusOf(r) === s).length]));
+
+/**
+ * "3 listed · 5 untested · 1 failed" — listed always, the rest only when there are
+ * some. `—` is the server saying it could not read the account's models.
+ */
+function rollUpText(m) {
+  if (!m) return "—";
+  return MODEL_GROUPS
+    .filter(([, , key], i) => i === 0 || m[key])
+    .map(([, title, key]) => `${m[key]} ${title.toLowerCase()}`)
+    .join(` ${C.dim}·${C.reset} `);
+}
+
+/**
  * The account's state, as TWO facts — because it is two questions.
  *
  *   live      does this credential still work? (the server probed it)
@@ -458,12 +490,13 @@ function servingOf(a) {
 }
 
 /**
- * The serving state on one line — WHICH path is carrying this account now.
+ * The ROUTE on one line — WHICH path would carry this account's requests. It says nothing
+ * about what is on sale: a model lists only after it passes a test (the `models` line below).
  *
- *   ● serving through THIS machine   a node you run, and it is this box
- *   ● serving through another machine  a different node of yours has it
- *   serving nodeless                 Aile dials the provider directly, no machine
- *   not serving                      nothing can: no node up and nodeless not on
+ *   ● route: this machine            a node you run, and it is this box
+ *   ● route: another of your machines  a different node of yours has it
+ *   route: Direct                    Aile calls the provider itself, no machine
+ *   no route                         nothing can: no node up and Direct not on
  *
  * `hereNodeId` is this machine's stable id (`getNodeId()`), so the line can say
  * "this box" versus "another of yours" — the distinction a lender staring at a
@@ -473,14 +506,14 @@ function servedLine(a, hereNodeId) {
   const s = servingOf(a);
   if (s.via === "node") {
     const here = s.nodeId && hereNodeId && s.nodeId === hereNodeId;
-    const where = here ? "through THIS machine" : "through another of your machines";
-    const also = s.nodeless ? `${C.dim} · also reachable via Aile${C.reset}` : "";
-    return `${C.green}● serving ${where}${C.reset}${also}`;
+    const where = here ? "this machine" : "another of your machines";
+    const also = s.nodeless ? `${C.dim} · also Direct${C.reset}` : "";
+    return `${C.green}● route: ${where}${C.reset}${also}`;
   }
   if (s.via === "nodeless") {
-    return `${C.cyan}serving nodeless${C.reset}${C.dim} · via Aile, no machine in the path${C.reset}`;
+    return `${C.cyan}route: Direct${C.reset}${C.dim} · Aile calls the provider, no machine in the path${C.reset}`;
   }
-  return `${C.dim}not serving${C.reset}${C.dim} · needs a node (${C.reset}${C.cyan}aile start${C.reset}${C.dim}) or nodeless${C.reset}`;
+  return `${C.dim}no route${C.reset}${C.dim} · needs a node (${C.reset}${C.cyan}aile start${C.reset}${C.dim}) or Direct${C.reset}`;
 }
 
 /**
@@ -602,16 +635,22 @@ async function cmdConnect(args) {
       }
     }
     // What makes it earn. A linked account serves nothing until a node is up —
-    // unless it is nodeless, which is the one case where there is no next step.
-    // A provider no node can serve (`apiKey.nodelessOnly`) earns ONLY nodeless, so
-    // pointing it at `aile start` would leave it earning nothing.
+    // unless it is nodeless. A provider no node can serve (`apiKey.nodelessOnly`)
+    // earns ONLY nodeless, so pointing it at `aile start` would leave it earning nothing.
+    // And a model lists only after a passing test: a node-backed link is tested in the
+    // background (unless its Health-check consent is "Never"), a nodeless one is not tested at link.
     const nodeless = account.allow_nodeless && keyProvider;
     const serving = getRelayStatus().running || lockHolder();
+    const steps = [];
     if (!nodeless && provider.apiKey?.nodelessOnly) {
-      console.log(`\n${C.yellow}Serves only through Aile:${C.reset} re-run with --nodeless, or turn Nodeless on in the dashboard.`);
+      console.log(`\n${C.yellow}Serves only through Aile:${C.reset} re-run with --nodeless, or set Route to Direct in the dashboard.`);
     } else if (!nodeless && !serving) {
-      console.log(`\n${next([["aile start", "serve it from this machine"]])}`);
+      steps.push(["aile start", "serve it from this machine"]);
     }
+    if ((nodeless || account.allow_serve_probe === false) && account.id) {
+      steps.push([`aile test ${account.id}`, "test its models so they list"]);
+    }
+    if (steps.length) console.log(`\n${next(steps)}`);
     console.log();
   } catch (e) {
     // The cap arrives as a plain 400 from the server. Name the way out of it —
@@ -812,6 +851,8 @@ async function cmdAccounts(args) {
     // showed "Needs a node" and one with the flag set but never honoured showed
     // "serves without this machine". The verdict comes from the server now.
     console.log(`        ${servedLine(a, here)}`);
+    // What lists, counted by the server's own status (`aile models <n>` has the rows).
+    console.log(`        ${C.dim}models${C.reset}  ${rollUpText(a.models)}`);
     // The switch, pointed the right way for where this account currently is. Only
     // for api-key accounts — a subscription is relayed through the node on purpose
     // (ROUTER-PLAN §6.6), so offering to serve one without a machine would arm a
@@ -826,6 +867,7 @@ async function cmdAccounts(args) {
     console.log(`        ${C.dim}${a.id}${C.reset}`);
   }
   console.log(`\n${C.dim}Name one:   ${C.reset}${C.cyan}aile label 1 "work account"${C.reset}`);
+  console.log(`${C.dim}Its models: ${C.reset}${C.cyan}aile models 1${C.reset}`);
   console.log(`${C.dim}Remove one: ${C.reset}${C.cyan}aile disconnect 1${C.reset}\n`);
 }
 
@@ -987,8 +1029,11 @@ async function cmdLabel(args) {
  * IT CANNOT MAKE AN ACCOUNT VERIFIED, and says so, because that is the next thing a
  * lender tries. Attestation is bound to a nonce issued during the link; there is no
  * way to attest an account that already exists. Only re-linking can.
+ *
+ * IT DOES NOT TEST MODELS EITHER, and says that too: a model lists after a passing
+ * test (`aile test`), and a lender who sees "works" here expects their models listed.
  */
-async function cmdRetest(args) {
+async function cmdCheckKey(args) {
   banner();
   const config = loadConfig();
   requireToken(config);
@@ -1005,7 +1050,7 @@ async function cmdRetest(args) {
   const ref = args._[1];
   const targets = ref ? [resolveAccountRef(String(ref), accounts)] : accounts;
 
-  console.log(`\n${C.bold}Re-testing ${targets.length === 1 ? "one account" : `${targets.length} accounts`}${C.reset}\n`);
+  console.log(`\n${C.bold}Checking ${targets.length === 1 ? "key" : `${targets.length} keys`} …${C.reset}\n`);
   for (const a of targets) {
     const name = getProvider(a.provider)?.name || a.provider;
     const detail = a.label || a.email || a.id.slice(0, 8);
@@ -1029,8 +1074,210 @@ async function cmdRetest(args) {
     console.log(`  ${word}  ${name} ${C.dim}·${C.reset} ${detail}${why}`);
   }
 
-  console.log(`\n${C.dim}This checks whether the credential still works. It cannot make an account${C.reset}`);
+  console.log(`\n${C.dim}This does not test models. Run ${C.reset}${C.cyan}aile test${C.reset}${C.dim}.${C.reset}`);
+  console.log(`${C.dim}This checks whether the credential still works. It cannot make an account${C.reset}`);
   console.log(`${C.dim}verified — only re-linking can, because attestation is bound to the link.${C.reset}\n`);
+}
+
+/**
+ * What one account lists, and why a model does not.
+ *
+ * ONE ACCOUNT, NEVER ALL: an aggregator alone is ~400 rows. What a lender wants
+ * across accounts is the count, which is `aile accounts`.
+ *
+ * THE SERVER DECIDES THE STATUS (lib/modelStatus.ts); this groups and prints, and
+ * prints the server's `note` as it came.
+ */
+async function cmdModels(args) {
+  banner();
+  const config = loadConfig();
+  requireToken(config);
+  const server = args.server || config.serverUrl;
+  const insecure = checkTransport(server, args);
+
+  const ref = args._[1];
+  if (!ref) die("Name an account.", "See `aile accounts`.");
+
+  const accounts = await fetchAccounts({ server, config, insecure });
+  const account = resolveAccountRef(ref, accounts);
+
+  let res;
+  try {
+    res = await withSpinner("Reading its models…", api.listAccountModels({
+      id: account.id, serverUrl: server, token: config.renterToken, insecure,
+    }));
+  } catch (e) {
+    die(...explainError(e, server));
+  }
+
+  if (args.json) {
+    console.log(JSON.stringify(res, null, 2));
+    return;
+  }
+
+  const rows = res.models || [];
+  console.log(`\n${C.bold}${accountTitle(account)}${C.reset}`);
+  if (!rows.length) {
+    console.log(`\n${C.dim}No models.${C.reset}\n`);
+    return;
+  }
+
+  for (const [status, title] of MODEL_GROUPS) {
+    const group = rows.filter((r) => statusOf(r) === status);
+    if (!group.length) continue;
+    // A note every row of the group shares is said once.
+    const shared = group.every((r) => r.note === group[0].note) ? group[0].note : null;
+    console.log(`\n  ${C.bold}${title}${C.reset} ${C.dim}(${group.length})${shared ? ` · ${shared}` : ""}${C.reset}`);
+    for (const r of group) {
+      const surface = r.surface ? ` ${C.dim}[${r.surface}]${C.reset}` : "";
+      const note = !shared && r.note ? `  ${C.dim}${r.note}${C.reset}` : "";
+      console.log(`    ${r.model}${surface}${note}`);
+    }
+  }
+
+  if (res.liveListPending) {
+    console.log(`\n${C.dim}Its full model list is still loading — run this again in a moment.${C.reset}`);
+  }
+  const n = accounts.indexOf(account) + 1;
+  console.log(rows.some((r) => statusOf(r) === "untested")
+    ? `\n${C.dim}Test the untested: ${C.reset}${C.cyan}aile test ${n}${C.reset}\n`
+    : "");
+}
+
+/** Surfaces whose test is a paid render, so a bare `aile test <n>` never sweeps them up. */
+const COSTLY_SURFACES = new Set(["image", "video", "music"]);
+/** A bare `aile test <n>` over more models than this asks first: each is one real request on the account's quota. */
+const CONFIRM_ABOVE = 25;
+
+/**
+ * Run the model test on one account: one small real request per model, and a pass
+ * lists the model. The same test as the dashboard's Test button.
+ *
+ *   aile test 2                  every untested model, but not image, video or music (--yes above 25)
+ *   aile test 2 gpt-5.5 gpt-5.4  these
+ *
+ * IT SPENDS THE ACCOUNT'S OWN QUOTA, so it says so first and runs only when asked.
+ * The server answers one call within ~30 s and returns what it did not reach as
+ * `deferred`; those are sent again until none are left.
+ *
+ * A TIMEOUT HERE IS NOT A FAILED TEST. The server may still be dialling, so the
+ * models are NOT sent again — a second call would spend the quota twice — and the
+ * lender is pointed at `aile models` to read the result.
+ */
+async function cmdTest(args) {
+  banner();
+  const config = loadConfig();
+  requireToken(config);
+  const server = args.server || config.serverUrl;
+  const insecure = checkTransport(server, args);
+  const opts = { serverUrl: server, token: config.renterToken, insecure };
+
+  const ref = args._[1];
+  if (!ref) die("Name an account.", "See `aile accounts`.");
+
+  const accounts = await fetchAccounts({ server, config, insecure });
+  const account = resolveAccountRef(ref, accounts);
+  const n = accounts.indexOf(account) + 1;
+
+  let rows;
+  try {
+    rows = (await withSpinner("Reading its models…", api.listAccountModels({ id: account.id, ...opts }))).models || [];
+  } catch (e) {
+    die(...explainError(e, server));
+  }
+
+  const named = args._.slice(2).map(String);
+  const models = named.length
+    ? named
+    : rows.filter((r) => r.status === "untested" && !COSTLY_SURFACES.has(r.surface)).map((r) => r.model);
+  if (!models.length) {
+    console.log(`\n${C.dim}Nothing untested to test.${C.reset}`);
+    if (rows.some((r) => r.status === "untested")) {
+      console.log(`${C.dim}The rest render output and bill the account — name one: ${C.reset}${C.cyan}aile test ${n} <model>${C.reset}`);
+    }
+    console.log();
+    return;
+  }
+
+  // An aggregator offers hundreds of models, so a long implicit list is confirmed, or needs --yes.
+  if (!named.length && models.length > CONFIRM_ABOVE && !args.yes) {
+    if (!isInteractive()) {
+      die(`That would test ${models.length} models on this account's quota.`, `Pass --yes to run them: aile test ${n} --yes`);
+    }
+    console.log();
+    if (!(await promptConfirm(`Test ${models.length} models on this account's quota?`, { defaultYes: false }))) {
+      console.log(`${C.dim}Nothing changed.${C.reset}
+`);
+      return;
+    }
+  }
+
+  // A render bills the lender's account, so a lone image, video or music model is confirmed.
+  const lone = models.length === 1 ? rows.find((r) => r.model === models[0]) : null;
+  if (lone && COSTLY_SURFACES.has(lone.surface) && !args.yes) {
+    if (!isInteractive()) {
+      die("That model renders output and bills the account.", `Pass --yes to run it: aile test ${n} ${lone.model} --yes`);
+    }
+    console.log();
+    if (!(await promptConfirm(`Test ${lone.model}? It renders output and bills the account.`, { defaultYes: false }))) {
+      console.log(`${C.dim}Nothing changed.${C.reset}\n`);
+      return;
+    }
+  }
+
+  console.log(`\n${C.bold}Testing ${models.length === 1 ? models[0] : `${models.length} models`}${C.reset} on ${accountTitle(account)}`);
+  console.log(`${C.dim}Each is one small real request, and it spends this account's own quota.${C.reset}\n`);
+
+  // `--timeout <seconds>` waits longer (or shorter) for each call than the default 2 minutes.
+  const timeoutMs = Number(args.timeout) > 0 ? Number(args.timeout) * 1000 : undefined;
+  const words = { ok: `${C.green}ok    `, failed: `${C.red}failed`, transient: `${C.yellow}retry ` };
+  const tally = { ok: 0, failed: 0, transient: 0, skipped: 0 };
+  const queue = [...models];
+  let rowsAfter = null;
+  let halt = null;
+  while (queue.length) {
+    const batch = queue.splice(0, 25); // the server's cap per call
+    let res;
+    try {
+      res = await withSpinner(`Testing ${batch.length === 1 ? batch[0] : `${batch.length} models`}…`, api.testAccountModels({
+        id: account.id, models: batch, timeoutMs, ...opts,
+      }));
+    } catch (e) {
+      if (/^no response from/.test(e?.message)) {
+        die("The server did not answer in time.", `The server may still be testing. Check \`aile models ${n}\`.`);
+      }
+      die(...explainError(e, server));
+    }
+    for (const r of res.results || []) {
+      tally[r.status] = (tally[r.status] || 0) + 1;
+      console.log(`  ${words[r.status] || r.status}${C.reset} ${r.model}${r.error ? `  ${C.dim}${r.error}${C.reset}` : ""}`);
+    }
+    for (const m of res.skipped || []) {
+      tally.skipped++;
+      console.log(`  ${C.dim}skipped ${C.reset} ${m}  ${C.dim}not one of this account's models${C.reset}`);
+    }
+    rowsAfter = res.models || rowsAfter;
+    // Not reached before the server's budget ran out: never dialled, so send them again.
+    queue.unshift(...(res.deferred || []));
+    // A server that dialled nothing and deferred everything would be asked for ever.
+    if (res.stoppedEarly || (res.deferred?.length && !res.results?.length)) {
+      halt = res;
+      break;
+    }
+  }
+
+  const parts = [];
+  if (tally.ok) parts.push(`${tally.ok} passed`);
+  if (tally.failed) parts.push(`${tally.failed} failed`);
+  if (tally.transient) parts.push(`${tally.transient} to retry`);
+  if (tally.skipped) parts.push(`${tally.skipped} skipped`);
+  console.log(`\n${parts.join(" · ") || "Nothing was tested."}`);
+  if (halt) {
+    console.log(`${C.yellow}Stopped:${C.reset} ${halt.stopDetail || "the server did not get to the rest."}${queue.length ? ` ${C.dim}${queue.length} not tested.${C.reset}` : ""}`);
+    process.exitCode = 1;
+  }
+  if (rowsAfter) console.log(`Now ${rollUpText(countByStatus(rowsAfter))}`);
+  console.log(`${C.dim}What lists: ${C.reset}${C.cyan}aile models ${n}${C.reset}\n`);
 }
 
 /**
@@ -1814,7 +2061,7 @@ async function cmdStart(args) {
     !localNow ? null
       : engine?.error ? ["Local AI", `${C.red}not started${C.reset} ${C.dim}${engine.error.replace(/`([^`]+)`/g, `${C.reset}${C.cyan}$1${C.reset}${C.dim}`)}${C.reset}`]
       : localNow.state === "up" ? ["Local AI", `${engine ? `${{ ollama: "Ollama", llamacpp: "llama.cpp" }[engine.engine] || engine.engine} ${C.dim}·${C.reset} ` : ""}${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}this machine reads those prompts${C.reset}`]
-      : localNow.state === "down" ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}not answering${C.reset} ${C.dim}· ${localModels} listed once it does${C.reset}`]
+      : localNow.state === "down" ? ["Local AI", `${config.localEndpoint} ${C.dim}·${C.reset} ${C.yellow}not answering${C.reset} ${C.dim}· ${localModels} listed after it answers a test probe${C.reset}`]
       : ["Local AI", `${C.red}misconfigured${C.reset} ${C.dim}${localNow.reason}${C.reset}`],
     mcp.configError ? ["MCP", `${C.red}config error${C.reset} ${C.dim}${mcp.configError}${C.reset}`]
       : !mcp.declared.length ? null
@@ -2388,7 +2635,7 @@ async function cmdLenders(args) {
     const anyFilter = f.maxUsdPerMtok || f.verified || f.provider || f.model
       || f.handle || f.nodeId || f.minServed || f.freeOnly;
     if (!anyFilter) {
-      console.log(`  ${C.dim}None of them can be paid on this deployment, so none can take a request.${C.reset}`);
+      console.log(`  ${C.dim}None is listed: a model lists after a test, and a lender needs a payout wallet.${C.reset}`);
     }
     console.log();
     return;
@@ -3120,7 +3367,9 @@ try {
     case "accounts": await cmdAccounts(args); break;
     case "capacity": await cmdCapacity(args); break;
     case "label": case "rename": await cmdLabel(args); break;
-    case "retest": case "recheck": await cmdRetest(args); break;
+    case "models": await cmdModels(args); break;
+    case "test": await cmdTest(args); break;
+    case "check-key": case "retest": case "recheck": await cmdCheckKey(args); break;
     case "usage": case "quota": await cmdUsage(args); break;
     case "nodeless": await cmdNodeless(args); break;
     case "rates": await cmdRates(args); break;

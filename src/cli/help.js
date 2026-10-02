@@ -209,8 +209,30 @@ export const COMMANDS = [
     examples: [["aile label 2 \"work account\"", "by its number from aile accounts"]],
   },
   {
-    name: "retest", aliases: ["recheck"], group: "lend", summary: "re-check a credential from the server",
-    examples: [["aile retest", "every account"], ["aile retest 2", "one account"]],
+    name: "models", group: "lend", summary: "what an account lists, and why a model does not",
+    examples: [
+      ["aile models 2", "listed, untested, failed, can't sell, off — with the reason"],
+      ["aile models 2 --json", "the same, for a script"],
+    ],
+    notes: ["A model lists after it passes a test: `aile test`. `aile accounts` shows the count for each account."],
+  },
+  {
+    name: "test", group: "lend", summary: "test an account's models so they list",
+    examples: [
+      ["aile test 2", "every untested model, one small request each"],
+      ["aile test 2 gpt-5.5 gpt-5.4", "just these"],
+      ["aile test 2 <image model> --yes", "an image, video or music model renders output and bills the account"],
+      ["aile test 2 --timeout 300", "wait up to 300 s for each call (default 120)"],
+    ],
+    notes: [
+      "Spends the account's own quota. Image, video and music models are never tested unless named, and a lone one asks first. More than 25 untested models asks first; `--yes` skips it (needed off a terminal).",
+      "Runs the same test as the dashboard's Test button. A timeout is not a failure — the server may still be testing, so check `aile models` rather than running it again.",
+    ],
+  },
+  {
+    name: "check-key", aliases: ["retest", "recheck"], group: "lend", summary: "check a credential from the server (does not test models)",
+    examples: [["aile check-key", "every account"], ["aile check-key 2", "one account"]],
+    notes: ["Only asks whether the provider still accepts the key. A model lists after `aile test`."],
   },
   {
     name: "usage", aliases: ["quota"], group: "lend", summary: "quota each provider reports, per account",

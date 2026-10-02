@@ -475,7 +475,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
     });
     try {
       const res = await run(["lenders"], { data: signedInData(srv.url) });
-      expect(res.stdout).toContain("none can take a request");
+      expect(res.stdout).toContain("None is listed");
     } finally { srv.stop(); }
   });
 
@@ -560,7 +560,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
     });
     try {
       const res = await run(["lenders", "--min-served", "5"], { data: signedInData(srv.url) });
-      expect(res.stdout).not.toContain("none can take a request");
+      expect(res.stdout).not.toContain("None is listed");
     } finally { srv.stop(); }
   });
 });

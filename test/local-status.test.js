@@ -131,7 +131,7 @@ describe("localTransition — one line per change, none for the same state", () 
     expect(localTransition(null, up, ep)).toBeNull();
   });
   it("names the address and what is not listed when it is not answering", () => {
-    expect(plain(localTransition(null, down, ep))).toMatch(/Local AI not answering · 127\.0\.0\.1:11434 · llama3 listed once it does/);
+    expect(plain(localTransition(null, down, ep))).toMatch(/Local AI not answering · 127\.0\.0\.1:11434 · llama3 listed after it answers a test probe/);
     expect(plain(localTransition("up", down, ep))).toMatch(/Local AI stopped answering · 127\.0\.0\.1:11434 · llama3 unlisted until it's back/);
     // Any reason but the usual one is named.
     expect(plain(localTransition(null, { ...down, reason: "no answer in 3s" }, ep))).toMatch(/127\.0\.0\.1:11434 \(no answer in 3s\)/);
