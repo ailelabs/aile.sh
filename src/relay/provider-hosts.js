@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 255 hosts.
+ * 256 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -194,6 +194,7 @@ export const PROVIDER_HOSTS = new Set([
   "gemini.google.com",
   "gen.pollinations.ai",
   "generativelanguage.googleapis.com",
+  "ghe.com",
   "gigachat.devices.sberbank.ru",
   "github.com",
   "gitlab.com",
