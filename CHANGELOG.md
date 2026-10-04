@@ -98,6 +98,10 @@ a patch bump fixes something.
   existing `~/.codex/config.toml`. They rewrote it with the default (usually
   `0644`), so a file you had made private became readable by other users on
   the machine, with your aile key in it.
+- Ending a rented MCP session no longer pauses the node while Docker (or
+  Podman) stops its container. Every other stream the node was relaying used
+  to wait for that round trip, up to 10 seconds, once per session when several
+  ended together.
 
 ## [1.2.0] - 2026-09-27
 

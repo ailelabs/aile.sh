@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { EventEmitter } from "node:events";
 import {
   CONTAINER_PREFIX,
   detectRuntime,
@@ -267,6 +268,31 @@ describe("spawnServer", () => {
     expect(kills[0].env).toEqual(spawned);
     expect(kills[0].env.DOCKER_HOST).toBe("tcp://10.0.0.5:2375");
     expect("AILE_TOKEN" in kills[0].env).toBe(false);
+  });
+
+  it("stops the container without waiting on the runtime CLI", () => {
+    // A spawnSync here froze the node's one event loop — every relayed stream —
+    // for a whole runtime round trip, up to 10 s, on each session end.
+    const k = Object.assign(new EventEmitter(), { unrefd: false, unref() { this.unrefd = true; } });
+    const kills = [];
+    let cliKilled = false;
+    const s = spawnServer(server, {
+      streamId: 1, runtime: "docker", log: { warn() {}, debug() {} },
+      spawnImpl: () => ({ ...fakeChild(), kill() { cliKilled = true; } }),
+      killImpl: (bin, args, opts) => { kills.push({ bin, args, opts }); return k; },
+    });
+    s.kill();
+    expect(kills).toHaveLength(1);
+    expect(kills[0].bin).toBe("docker");
+    expect(kills[0].args).toEqual(["kill", s.name]);
+    // Detached and unreferenced: it outlives a node that exits right after
+    // (Windows kills a non-detached child with its parent) and holds nothing open.
+    expect(kills[0].opts.detached).toBe(true);
+    expect(k.unrefd).toBe(true);
+    // A runtime gone by then reports ENOENT as an event; unheard, it would
+    // take the whole node down.
+    expect(() => k.emit("error", Object.assign(new Error("spawn docker ENOENT"), { code: "ENOENT" }))).not.toThrow();
+    expect(cliKilled).toBe(true);
   });
 
   it("warns out loud when a declared host list is not enforced", () => {

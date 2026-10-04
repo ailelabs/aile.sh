@@ -207,7 +207,7 @@ export function describeEgress(server) {
  * Returns `{ child, name, kill }`. The caller owns the byte pumping — this
  * module's whole job is the box, not the protocol.
  */
-export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, killImpl = spawnSync, detect = detectRuntime, log = console } = {}) {
+export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, killImpl = spawn, detect = detectRuntime, log = console } = {}) {
   // `detect` is injectable so the no-runtime refusal can be tested on a machine
   // where Docker happens to be running. A test whose verdict depends on the
   // developer's daemon is not a test of this rule.
@@ -248,8 +248,17 @@ export function spawnServer(server, { streamId, runtime, spawnImpl = spawn, kill
     // CLI process is the one that noticed. Killing the container by name is
     // what actually stops the workload — killing the CLI alone can leave it
     // running detached.
+    // Started, never waited on: this runs on the node's one event loop, and a
+    // blocking kill froze every relayed stream for a runtime round trip (up to
+    // the 10 s timeout) on each session end. Detached and unref'd so it
+    // outlives a node that exits right after (Ctrl+C on `aile start`, a
+    // finished `aile mcp test`): Windows kills a non-detached child with its
+    // parent. It runs even when the container already exited: the CLI's exit
+    // does not prove its container stopped, and "No such container" is free.
     try {
-      killImpl(bin, ["kill", name], { env: cliEnv, timeout: 10000, windowsHide: true, stdio: "ignore" });
+      const k = killImpl(bin, ["kill", name], { env: cliEnv, detached: true, timeout: 10000, windowsHide: true, stdio: "ignore" });
+      k.on("error", () => { /* no runtime CLI any more: nothing it could stop */ });
+      k.unref();
     } catch { /* the container is already gone */ }
     try { child.kill(); } catch { /* already exited */ }
     log?.debug?.(`[MCP] ${name} stopped: ${reason}`);
