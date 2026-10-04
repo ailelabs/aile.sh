@@ -40,7 +40,7 @@ Changes take effect on the next `aile start`.
 | Key | Default | Range | What it does |
 |---|---|---|---|
 | `serverUrl` | `https://api.aile.sh` | — | Relay this machine connects to. Also `AILE_SERVER_URL`; `--server` beats both. |
-| `allowInsecure` | `false` | — | Permit plain `http://` to the server. Staging only. |
+| `allowInsecure` | `false` | — | Permit plain `http://` to the server. Staging only. The only waiver `aile start` honours: `--insecure` covers one command, not the node's reconnects. |
 | `maxConcurrent` | `4` | 1–64 | Streams this machine carries at once. |
 | `autoReconnect` | `true` | — | Reconnect on its own after the link drops. |
 | `reconnectMinMs` | `1000` | 250–60000 | Floor of the reconnect backoff. |

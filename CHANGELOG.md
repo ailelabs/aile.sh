@@ -81,6 +81,19 @@ a patch bump fixes something.
   failed; the check now runs with the same settings. Ending a session stops
   its container on the same daemon it was started on, even when the server
   declares its own `DOCKER_HOST` or `HOME`.
+- `aile start` no longer connects to a plain `http://` server unless
+  `allowInsecure` is saved (`aile config allowInsecure true`); `localhost` and
+  `127.0.0.1` need nothing. It used to send your account token in clear on every
+  reconnect, and the node secret when re-registering the machine, whatever the
+  setting said. It now stops and says why, and checks again on every reconnect.
+- A node that could not reach the server no longer writes your account token
+  to its log. Under Bun the connection error carried the whole connection
+  address, token included, and `aile start` printed it on the first failure and
+  every five minutes after (in `docker logs` for the container node).
+- A plain `http://` server address, or a sign-in address from the server, whose
+  host only looked like this machine (`http://localhost:@example.com`, where
+  `localhost:` is a user name) was treated as loopback and allowed without
+  `--insecure`. The check now reads the host the request actually goes to.
 
 ## [1.2.0] - 2026-09-27
 

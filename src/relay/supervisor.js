@@ -17,6 +17,7 @@ import { buildMcpCapability } from "../mcp/capabilities.js";
 import { MCP_CONFIG_FILE } from "../mcp/config.js";
 import { reapOrphans } from "../mcp/sandbox.js";
 import { localStatus } from "./local.js";
+import { isSecureUrl } from "../api/client.js";
 import { logger } from "../config/logger.js";
 import { C } from "../cli/colors.js";
 import { sym } from "../cli/ui.js";
@@ -140,7 +141,8 @@ const state = {
   lastError: null,
   lastConnectedAt: null,
   // Set when the server has refused this machine's credentials and re-enrolling
-  // did not help. Retrying past that point is noise, so the loop stops.
+  // did not help, or when the server URL would take the token in clear. Retrying
+  // past that point is noise, so the loop stops.
   fatal: null,
   // One repair attempt per run. Without the latch a server that refuses every
   // node would have us minting a fresh identity on every backoff tick.
@@ -318,6 +320,20 @@ async function repairIdentity(config, log) {
 async function connectOnce(config) {
   if (state.connecting || state.stopped) return;
   if (state.agent?.getStats?.().connected) return;
+
+  // BEFORE ANYTHING IS SENT, ON EVERY DIAL (audit A-104). The agent URL carries
+  // the account token, a failed upgrade re-sends it over http to ask why, and a
+  // repair POSTs the node secret. A reconnect re-reads the config, so a check at
+  // start alone would miss a server changed while the node runs. Only the SAVED
+  // opt-in waives it: a one-off --insecure never reaches this loop (attest.js
+  // reads /providers the same way). A refusal stops the node, so `aile start`
+  // exits saying why instead of retrying into it.
+  if (!isSecureUrl(config.serverUrl) && config.allowInsecure !== true) {
+    state.fatal = `refusing ${config.serverUrl}: plain HTTP would send the account token in clear — ` +
+      "for a staging server, run `aile config allowInsecure true`";
+    return;
+  }
+
   state.connecting = true;
   const log = nodeLog(config.logLevel);
 

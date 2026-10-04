@@ -493,6 +493,9 @@ aile start
 - It reconnects on its own after a drop unless `autoReconnect` is off. If the
   server permanently refuses this machine it exits non-zero, so a service manager
   sees a failure rather than a node that looks alive.
+- It refuses a plain `http://` server other than `localhost`/`127.0.0.1` unless
+  `allowInsecure` is saved (`aile config allowInsecure true`), and exits saying
+  so. `--insecure` does not apply here: every reconnect sends the account token.
 - `SIGINT` / `SIGTERM` drain in-flight streams and exit cleanly.
 
 ### status

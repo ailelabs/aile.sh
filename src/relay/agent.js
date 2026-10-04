@@ -22,6 +22,14 @@ import { accessHeaders } from "../api/access.js";
 /** The host of a URL, or null. Never throws — a diagnostic must not become the fault. */
 const hostOf = (url) => { try { return new URL(String(url)).host; } catch { return null; } };
 
+// Bun writes the whole dial URL into a failed WebSocket's error text ("WebSocket
+// connection to 'ws://host/agent?token=ail_…&sig=…' failed", "Invalid url for
+// WebSocket …"), and the supervisor logs that text and keeps it as lastError, so
+// a relay outage printed the account token into the node's log (found fixing audit A-104).
+// Every connect rejection goes through this.
+export const scrubDialSecrets = (text) =>
+  String(text ?? "").replace(/([?&](?:token|sig|nonce|nodeId)=)[^&'"\s]*/g, "$1…");
+
 // Defaults for a directly-constructed agent. The CLI passes the user's settings
 // (src/config/settings.js), which is where the documented bounds live; these
 // values only apply when a caller — a test, say — constructs one bare.
@@ -136,7 +144,7 @@ export class RelayAgent {
         const headers = accessHeaders();
         ws = Object.keys(headers).length ? new WebSocket(url, { headers }) : new WebSocket(url);
       } catch (e) {
-        reject(e);
+        reject(new Error(scrubDialSecrets(e?.message || e)));
         return;
       }
       ws.binaryType = "arraybuffer";
@@ -172,8 +180,8 @@ export class RelayAgent {
           // it actually said. Diagnosis only: the answer never authorises
           // anything, it just replaces a dead end with a sentence.
           this._diagnose()
-            .then((detail) => reject(new RelayConnectError(detail || err?.message || "websocket error")))
-            .catch(() => reject(new RelayConnectError(err?.message || "websocket error")));
+            .then((detail) => reject(new RelayConnectError(scrubDialSecrets(detail || err?.message || "websocket error"))))
+            .catch(() => reject(new RelayConnectError(scrubDialSecrets(err?.message || "websocket error"))));
         }
       };
 
@@ -204,7 +212,7 @@ export class RelayAgent {
         this._emitStatus("disconnected", { code: code ?? null, reason, opened, stale });
         if (!settled) {
           settled = true;
-          reject(new Error(`websocket closed before open (${code || "no code"}${reason ? `: ${reason}` : ""})`));
+          reject(new Error(scrubDialSecrets(`websocket closed before open (${code || "no code"}${reason ? `: ${reason}` : ""})`)));
         }
       };
       const abandon = () => {

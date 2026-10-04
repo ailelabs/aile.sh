@@ -85,6 +85,11 @@ only the HMAC does.
 `http://` is downgraded to `ws://` automatically for local testing. `aile link`
 refuses a non-HTTPS `--server` unless it is `localhost`/`127.0.0.1`, or the
 renter passes `--insecure` (staging by IP, before a domain is attached).
+`aile start` applies the same rule to the agent socket before every dial, each
+reconnect included, judged on the parsed host (in `http://localhost:@host` the
+`localhost:` is a user name, not the host). Only a saved `allowInsecure` waives
+it; a one-off `--insecure` never reaches the node's reconnect loop. It refuses
+before the token, the diagnostic probe or a re-enrolment's node secret is sent.
 
 ---
 

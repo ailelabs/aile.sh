@@ -25,6 +25,7 @@ import * as client from "../src/api/client.js";
 import { enrollNode } from "../src/relay/enroll.js";
 import { loadNodeSecret } from "../src/relay/state.js";
 import { getNodeId } from "../src/relay/identity.js";
+import { RelayAgent } from "../src/relay/agent.js";
 
 // This file must test the REAL client. login.test.js calls `mock.module` on it,
 // and that mutates one process-wide registry with no way to undo it — so
@@ -92,6 +93,9 @@ describe("what counts as safe enough to send a token over", () => {
     ["any plain-HTTP host", "http://api.aile.sh"],
     ["a hostname that merely starts with localhost", "http://localhost.evil.example"],
     ["a hostname that merely starts with 127.0.0.1", "http://127.0.0.1.evil.example"],
+    ["a remote host behind a `localhost:` user name", "http://localhost:@evil.example/x"],
+    ["a remote host behind a `127.0.0.1:` user name", "http://127.0.0.1:x@evil.example"],
+    ["loopback with a user name in front", "http://user@localhost"],
     ["a different address in 127/8", "http://127.0.0.10"],
     ["a non-HTTP scheme", "ws://api.aile.sh"],
     ["nothing at all", ""],
@@ -100,10 +104,18 @@ describe("what counts as safe enough to send a token over", () => {
   });
 
   // `localhost.evil.example` resolving under an attacker's control is the whole
-  // reason the check is anchored on a delimiter rather than a prefix.
+  // reason the check compares the parsed hostname, never a prefix of the string.
   it("the loopback exemption is anchored, not a prefix match", () => {
     expect(isSecureUrl("http://localhost")).toBe(true);
     expect(isSecureUrl("http://localhostage.example")).toBe(false);
+  });
+
+  // The parsed host is what `fetch` dials. A regex over the raw string read the
+  // user name `localhost:` as the host and sent the token to evil.example in clear.
+  it("judges the host the request goes to, not the string's first characters", () => {
+    expect(new URL("http://localhost:@evil.example").hostname).toBe("evil.example");
+    expect(() => assertTransportOk("http://localhost:@evil.example"))
+      .toThrow(/evil\.example.*clear.*--insecure/s);
   });
 
   it("names the URL and the way out when it refuses", () => {
@@ -474,7 +486,8 @@ describe("enrolment", () => {
    * `enrollNode` calls `fetch` directly, so it has no transport guard of its
    * own — it relies on its callers to have run one. That is fine, but it is
    * only fine as long as it stays true, so this pins it: every caller reaches
-   * the api client (and therefore the guard) before enrolment can happen.
+   * the api client (and therefore the guard) or the supervisor's own transport
+   * check before enrolment can happen.
    */
   it("is reached only after a guarded call, since it has no guard of its own", async () => {
     const source = fs.readFileSync(new URL("../src/auth/login.js", import.meta.url), "utf8");
@@ -490,5 +503,42 @@ describe("enrolment", () => {
     const cli = fs.readFileSync(new URL("../src/cli/index.js", import.meta.url), "utf8");
     const register = cli.slice(cli.indexOf("async function cmdRegister"));
     expect(register.indexOf("checkTransport")).toBeLessThan(register.indexOf("enrollNode"));
+
+    // The supervisor re-registers a refused machine (repairIdentity), so it too
+    // must have checked the transport before it gets there, on every dial.
+    const sup = fs.readFileSync(new URL("../src/relay/supervisor.js", import.meta.url), "utf8");
+    const connect = sup.slice(sup.indexOf("async function connectOnce"));
+    expect(connect.indexOf("isSecureUrl(")).toBeGreaterThan(-1);
+    expect(connect.indexOf("isSecureUrl(")).toBeLessThan(connect.indexOf("repairIdentity("));
+  });
+});
+
+// Bun writes the whole dial URL, token and signature included, into a failed
+// WebSocket's error text, and the supervisor logs whatever connect() rejects
+// with. So connect() must never reject with them, whichever way the dial failed.
+describe("a failed agent dial never carries the account token", () => {
+  const LEAKY = "WebSocket connection to 'ws://relay.test/agent?token=ail_X&nodeId=n1&nonce=n1:1&sig=SIGY' failed";
+  let RealWS;
+  beforeEach(() => { RealWS = globalThis.WebSocket; });
+  afterEach(() => { globalThis.WebSocket = RealWS; });
+
+  async function dialWith(FakeWS) {
+    globalThis.WebSocket = FakeWS;
+    stub = stubServer();
+    const dead = stub.url;
+    stub.stop();   // unreachable, so the failure probe has nothing better to say
+    const agent = new RelayAgent({ serverUrl: dead, renterToken: "ail_X", nodeId: "n1", log: null });
+    return agent.connect().catch((e) => e);
+  }
+
+  it.each([
+    ["the error event", class { constructor() { setTimeout(() => this.onerror?.({ message: LEAKY }), 0); } close() {} }],
+    ["a constructor throw", class { constructor() { throw new TypeError(`Invalid url for WebSocket ${LEAKY}`); } }],
+  ])("%s is scrubbed", async (_name, FakeWS) => {
+    const err = await dialWith(FakeWS);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toContain("relay.test/agent");   // still says where it failed
+    expect(err.message).not.toContain("ail_X");
+    expect(err.message).not.toContain("SIGY");
   });
 });

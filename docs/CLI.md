@@ -60,7 +60,7 @@ These work on any command.
 | Flag | What it does |
 |---|---|
 | `--server <url>` | Point at a different relay for this one command. Overrides `serverUrl`. |
-| `--insecure` | Permit a plain `http://` server. Staging only; refused otherwise. |
+| `--insecure` | Permit a plain `http://` server for this one command. Staging only; refused otherwise. `aile start` takes only the saved `allowInsecure`, because the node re-dials for as long as it runs. |
 | `--json` | Machine-readable output. Supported on the read commands. |
 | `--yes` | Skip confirmations. |
 | `--help`, `-h` | The command overview. After a command (`aile lenders --help`), that command's examples and details. Help never runs the command or touches the network. |

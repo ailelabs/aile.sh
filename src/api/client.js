@@ -18,8 +18,20 @@ export class ApiError extends Error {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/**
+ * https anywhere, or plain http to this machine. Judged on the PARSED URL — the
+ * parser `fetch` and the browser use — never on the string's first characters:
+ * in `http://localhost:@evil.example` the `localhost:` is a user name and the
+ * request goes to evil.example. A user name or password on a plain-http URL is
+ * refused outright; no relay or sign-in address carries one.
+ */
 export function isSecureUrl(url) {
-  return /^https:\/\//.test(url) || /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(url);
+  let u;
+  try { u = new URL(String(url)); } catch { return false; }
+  if (u.protocol === "https:") return true;
+  return u.protocol === "http:" && !u.username && !u.password && LOOPBACK_HOSTS.has(u.hostname);
 }
 
 export function assertTransportOk(url, { insecure = false } = {}) {

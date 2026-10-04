@@ -306,6 +306,52 @@ describe("the reconnect loop does not quietly waive HTTPS", () => {
       rec.stop(true);
     }
   });
+
+  // The agent socket, its failure probe and the identity repair all send the
+  // token (the repair also the node secret), so the SUPERVISOR must refuse
+  // before dialling, on every dial (audit A-104). It used to open
+  // ws://<host>/agent?token=… here and retry for ever.
+  // The refusal never dials, so it needs no LAN address: a TEST-NET-1 server
+  // (RFC 5737, never routed) and every socket and request recorded instead.
+  it("the supervisor dials nothing over plain HTTP with allowInsecure off", async () => {
+    const seen = [];
+    const realWS = globalThis.WebSocket;
+    const realFetch = globalThis.fetch;
+    globalThis.WebSocket = class { constructor(url) { seen.push(String(url)); throw new Error("dialled"); } };
+    globalThis.fetch = async (url) => { seen.push(String(url)); throw new Error("dialled"); };
+    const { startRelayAgent, stopRelayAgent } = await import("../src/relay/supervisor.js");
+    try {
+      saveConfig({ serverUrl: "http://192.0.2.1:9", renterToken: "ail_MUST_NOT_CROSS" });
+      const status = await startRelayAgent();
+      expect(status.fatal).toMatch(/plain HTTP/);  // stops with the reason instead of retrying
+      expect(seen).toEqual([]);                    // no upgrade, no diagnose, no /enroll
+    } finally {
+      stopRelayAgent("test done");
+      globalThis.WebSocket = realWS;
+      globalThis.fetch = realFetch;
+    }
+  }, 30000);
+
+  it("...and the supervisor dials it once allowInsecure is saved", async () => {
+    const lan = lanAddress();
+    if (!lan) return;
+
+    const seen = [];
+    const rec = Bun.serve({
+      port: 0, hostname: "0.0.0.0",
+      fetch(req) { seen.push(new URL(req.url).pathname); return new Response("no", { status: 400 }); },
+    });
+    const { startRelayAgent, stopRelayAgent } = await import("../src/relay/supervisor.js");
+    try {
+      saveConfig({ serverUrl: `http://${lan}:${rec.port}`, renterToken: "ail_tok", allowInsecure: true });
+      const status = await startRelayAgent();
+      expect(status.fatal).toBe(null);
+      expect(seen).toContain("/agent");
+    } finally {
+      stopRelayAgent("test done");
+      rec.stop(true);
+    }
+  }, 30000);
 });
 
 /**
