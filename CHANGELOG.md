@@ -94,6 +94,10 @@ a patch bump fixes something.
   host only looked like this machine (`http://localhost:@example.com`, where
   `localhost:` is a user name) was treated as loopback and allowed without
   `--insecure`. The check now reads the host the request actually goes to.
+- `aile setup codex` and `aile setup --remove` keep the permissions of an
+  existing `~/.codex/config.toml`. They rewrote it with the default (usually
+  `0644`), so a file you had made private became readable by other users on
+  the machine, with your aile key in it.
 
 ## [1.2.0] - 2026-09-27
 

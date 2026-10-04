@@ -142,6 +142,8 @@ describe("aile setup — writes each tool's own config, and undoes it exactly", 
     const codexBefore = '# mine\nmodel = "o3"\n\n[mcp_servers.docs]\ncommand = "docs"\n';
     fs.writeFileSync(claudeFile, claudeBefore);
     fs.writeFileSync(codexFile, codexBefore);
+    const POSIX = process.platform !== "win32";
+    if (POSIX) fs.chmodSync(codexFile, 0o600);
 
     const res = await run(m, ["setup", "claude", "codex", "opencode", "droid", "--mode", "both", "--key", GOOD, "--yes"]);
     expect(res.code).toBe(0);
@@ -166,6 +168,8 @@ describe("aile setup — writes each tool's own config, and undoes it exactly", 
     expect(codex).toContain(`base_url = "${stub.url}/v1"`);
     expect(codex).toContain('wire_api = "responses"');
     expect(codex).toContain(`experimental_bearer_token = "${GOOD}"`);
+    // The key went into a file its owner had made private; it stays private.
+    if (POSIX) expect(fs.statSync(codexFile).mode & 0o777).toBe(0o600);
 
     // opencode: our plugin, and its key where the plugin reads it.
     const oc = readJ(m.p(".config", "opencode", "opencode.json"));
@@ -204,6 +208,7 @@ describe("aile setup — writes each tool's own config, and undoes it exactly", 
     expect(undo.code).toBe(0);
     expect(fs.readFileSync(claudeFile, "utf8")).toBe(claudeBefore);
     expect(fs.readFileSync(codexFile, "utf8")).toBe(codexBefore);
+    if (POSIX) expect(fs.statSync(codexFile).mode & 0o777).toBe(0o600);
     expect(fs.existsSync(m.p(".config", "opencode", "opencode.json"))).toBe(false);
     expect(fs.existsSync(m.p(".local", "share", "opencode", "auth.json"))).toBe(false);
     expect(fs.existsSync(m.p(".factory", "settings.json"))).toBe(false);

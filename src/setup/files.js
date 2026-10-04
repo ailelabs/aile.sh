@@ -176,9 +176,14 @@ export function planJson(file, mutate, { secret = false } = {}) {
   };
 }
 
-/** Write text atomically: temp file, then rename over the target. */
+/**
+ * Write text atomically: temp file, then rename over the target. The rename
+ * puts the temp file's mode in place, so with no `mode` an existing file's
+ * own is carried over; only a new file gets the default (audit A-105).
+ */
 export function writeText(file, text, { mode = null } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!mode) { try { mode = fs.statSync(file).mode & 0o777; } catch { /* a new file */ } }
   const tmp = `${file}.aile-tmp-${process.pid}`;
   fs.writeFileSync(tmp, text, mode ? { mode } : undefined);
   if (mode) { try { fs.chmodSync(tmp, mode); } catch { /* not supported here */ } }

@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTopLevel, setBlock, blockBody, topLevelLine, hasForeignTable, lineValue, BLOCK_START, BLOCK_END } from "../src/setup/toml.js";
-import { planJson, commitEdit, revertJson, readJson, ownsBy } from "../src/setup/files.js";
+import { planJson, commitEdit, revertJson, readJson, ownsBy, writeText } from "../src/setup/files.js";
 import { shScript, cmdScript, validShortcutName, chooseBinDir, foreignShortcut, removeShortcut } from "../src/setup/shortcuts.js";
 import { recipe, childEnv } from "../src/setup/runners.js";
 import { makeCtx, webOrigin, bases } from "../src/setup/ctx.js";
@@ -133,6 +133,18 @@ describe("planJson / commitEdit / revertJson", () => {
     fs.writeFileSync(file, JSON.stringify(mid));
     revertJson(file, records);
     expect(JSON.parse(fs.readFileSync(file, "utf8")).customModels.map((m) => m.model)).toEqual(["mine", "later"]);
+  });
+
+  it.skipIf(process.platform === "win32")("writeText keeps an existing file's mode unless the caller names one", () => {
+    const dir = scratch();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(file, "a = 1\n");
+    fs.chmodSync(file, 0o600);
+    writeText(file, "a = 2\n");
+    expect(fs.readFileSync(file, "utf8")).toBe("a = 2\n");
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    writeText(file, "a = 3\n", { mode: 0o640 });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o640);
   });
 
   it("deletes a file it created once nothing else is in it", () => {
