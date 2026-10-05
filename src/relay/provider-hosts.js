@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 255 hosts.
+ * 252 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -68,8 +68,6 @@ export const PROVIDER_HOSTS = new Set([
   "api.groq.com",
   "api.haiper.ai",
   "api.hcnsec.cn",
-  "api.hunyuan.cloud.tencent.com",
-  "api.hyperbolic.xyz",
   "api.ideogram.ai",
   "api.inceptionlabs.ai",
   "api.inference.net",
@@ -180,7 +178,6 @@ export const PROVIDER_HOSTS = new Set([
   "copilot.microsoft.com",
   "copilot.tencent.com",
   "core-normal.trae.ai",
-  "crof.ai",
   "daily-cloudcode-pa.googleapis.com",
   "dash.cloudflare.com",
   "dashscope-intl.aliyuncs.com",
