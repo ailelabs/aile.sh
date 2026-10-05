@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 256 hosts.
+ * 255 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -105,7 +105,6 @@ export const PROVIDER_HOSTS = new Set([
   "api.openvecta.com",
   "api.orcarouter.ai",
   "api.perplexity.ai",
-  "api.pioneer.ai",
   "api.platform.preferredai.jp",
   "api.poe.com",
   "api.poixe.com",
