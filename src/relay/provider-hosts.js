@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 252 hosts.
+ * 256 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -116,6 +116,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.sambanova.ai",
   "api.sarvam.ai",
   "api.scaleway.ai",
+  "api.scrapingdog.com",
   "api.sea-lion.ai",
   "api.search.brave.com",
   "api.siliconflow.com",
@@ -144,6 +145,7 @@ export const PROVIDER_HOSTS = new Set([
   "app.blackbox.ai",
   "app.kimchi.dev",
   "app.notion.com",
+  "app.scrapingbee.com",
   "arena.ai",
   "ark.ap-southeast.bytepluses.com",
   "ark.cn-beijing.volces.com",
@@ -194,6 +196,7 @@ export const PROVIDER_HOSTS = new Set([
   "gigachat.devices.sberbank.ru",
   "github.com",
   "gitlab.com",
+  "google.serper.dev",
   "grok.com",
   "hermes.ai.unturf.com",
   "huggingface.co",
@@ -258,6 +261,7 @@ export const PROVIDER_HOSTS = new Set([
   "www.kimi.com",
   "www.meta.ai",
   "www.perplexity.ai",
+  "www.searchapi.io",
   "www.udio.com",
   "yolo-auto.com",
   "yuanbao.tencent.com",
