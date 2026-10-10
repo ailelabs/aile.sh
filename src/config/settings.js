@@ -156,6 +156,12 @@ export const SCHEMA = {
     group: "Self-hosted",
     describe: "context window, in tokens, for models aile downloads",
   },
+  shareCountry: {
+    type: "bool",
+    default: false,
+    group: "Self-hosted",
+    describe: "show this machine's country (from Cloudflare) on your self-hosted listings",
+  },
   localModelDir: {
     type: "path",
     default: "",

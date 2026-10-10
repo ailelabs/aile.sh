@@ -30,6 +30,9 @@ a patch bump fixes something.
   own build.
 - Settings `localEngine`, `localContext` and `localModelDir`. Models go under
   `%LOCALAPPDATA%` on Windows, not the roaming profile.
+- Your self-hosted listing now says which engine, quantization and context window
+  each model aile installed runs with, as your own claim. Setting `shareCountry`
+  (off by default) also shows this machine's country, as Cloudflare sees it.
 - A progress bar for downloads, with speed and time left; plain lines off a
   terminal. Ctrl+C keeps what was downloaded, and the same command resumes it.
 - `aile connect cloudflare-ai`: Cloudflare Workers AI by API token. It also asks

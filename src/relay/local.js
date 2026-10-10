@@ -32,6 +32,7 @@
 
 import net from "node:net";
 import dns from "node:dns/promises";
+import { loadManifest } from "../local/manifest.js";
 
 /**
  * Is this address on this machine or this network?
@@ -210,7 +211,7 @@ export function tcpAnswers(host, port, { timeoutMs = 3000 } = {}) {
  * the node was up, and the lender saw nothing wrong. `models` on a "down"
  * status is what WOULD be listed, for the sentence that says so.
  */
-export async function localStatus(config, { connect = tcpAnswers, fetchImpl = fetch, timeoutMs = 3000 } = {}) {
+export async function localStatus(config, { connect = tcpAnswers, fetchImpl = fetch, timeoutMs = 3000, manifest } = {}) {
   if (!config.localEnabled) return { state: "off" };
   let target;
   try {
@@ -223,7 +224,22 @@ export async function localStatus(config, { connect = tcpAnswers, fetchImpl = fe
     return { state: "down", reason: reach.reason || "unreachable", port: target.port, models: declaredModels(config) };
   }
   const models = await discoverLocalModels(config, { fetchImpl, timeoutMs });
-  return { state: "up", port: target.port, models };
+  // What aile itself installed, by model id: engine, quantization and context, and nothing else
+  // (no path, hash or size). A model aile did not install has no entry and so no claim.
+  const details = {};
+  const installed = manifest ?? loadManifest();
+  for (const id of models) {
+    const m = installed.models.find((x) => x.id === id || x.sellId === id);
+    if (!m) continue;
+    const engine = m.engine ?? (config.localEngine !== "external" ? config.localEngine : null);
+    // an Ollama model with no alias never had num_ctx applied, so the manifest's ctx is not what runs
+    details[id] = { engine, quant: m.quant ?? null, ctx: engine === "ollama" && !m.sellId ? null : m.ctx ?? config.localContext ?? null };
+  }
+  return {
+    state: "up", port: target.port, models,
+    ...(Object.keys(details).length ? { details } : {}),
+    ...(config.shareCountry === true ? { shareCountry: true } : {}),
+  };
 }
 
 /** The hello block for a status from `localStatus`, or null unless it is up. */
@@ -235,6 +251,9 @@ export function localCapabilityFrom(status) {
     blind: false,
     models: status.models,
     endpointPort: status.port,
+    // Claims, shown to buyers as the lender's own; present only when there is something to say.
+    ...(status.details ? { details: status.details } : {}),
+    ...(status.shareCountry ? { shareCountry: true } : {}),
   };
 }
 
