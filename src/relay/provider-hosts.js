@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 256 hosts.
+ * 257 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -121,6 +121,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.search.brave.com",
   "api.siliconflow.com",
   "api.stepfun.com",
+  "api.sync.so",
   "api.synthetic.new",
   "api.together.xyz",
   "api.tokenfactory.nebius.com",
