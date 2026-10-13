@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 257 hosts.
+ * 258 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -57,6 +57,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.featherless.ai",
   "api.firecrawl.dev",
   "api.fireworks.ai",
+  "api.fish.audio",
   "api.freeaiapikey.com",
   "api.freemodel.dev",
   "api.freepik.com",
