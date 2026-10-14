@@ -12,8 +12,9 @@ a patch bump fixes something.
 
 ### Removed
 
-- Gemini CLI sign-in is retired, because Google ended it for personal accounts:
-  link a Google login as Antigravity, or a Gemini API key as `gemini`.
+- Gemini CLI sign-in is retired, because Google ended it for personal accounts.
+  Link a Google login as Antigravity (`aile connect antigravity`). A Gemini API
+  key links as `gemini` from the dashboard or over MCP, not from this CLI.
 
 ### Added
 
