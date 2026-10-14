@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 31 providers.
+ * 30 providers.
  */
 
 export const PROVIDERS = [
@@ -256,28 +256,6 @@ export const PROVIDERS = [
         "header": "Authorization",
         "scheme": "bearer"
       }
-    }
-  },
-  {
-    "id": "gemini-cli",
-    "name": "Gemini CLI",
-    "flow": "google",
-    "oauth": {
-      "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
-      "tokenUrl": "https://oauth2.googleapis.com/token",
-      "scopes": [
-        "openid",
-        "email",
-        "https://www.googleapis.com/auth/cloud-platform",
-        "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/userinfo.profile"
-      ],
-      "extraParams": {
-        "access_type": "offline",
-        "prompt": "consent"
-      },
-      "clientId": "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
-      "clientSecret": "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"
     }
   },
   {

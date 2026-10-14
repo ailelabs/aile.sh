@@ -212,22 +212,11 @@ describe("the Google-family authorize URL", () => {
   });
 
   /**
-   * Named explicitly, not left to the loop below.
-   *
-   * The per-provider assertions iterate whatever the catalog happens to contain,
-   * so a provider dropped from the catalog takes its own coverage with it — the
-   * suite stays green while silently testing one fewer thing. gemini-cli was
-   * exactly that case: linkable in intent (a Google client, the openid scope, an
-   * authorize-param set all wired for it) but filtered out of the catalog before
-   * any of it ran. So its presence is pinned by name here, where losing it is a
-   * red test rather than a quiet loss of coverage.
+   * Google-family providers whose scope asks for `openid`. See the test below.
+   * None today: Gemini CLI was the only one, and it was retired when Google
+   * ended that sign-in for personal accounts.
    */
-  it("includes gemini-cli, whose linking wiring is otherwise dead", () => {
-    expect(google.map((p) => p.id)).toContain("gemini-cli");
-  });
-
-  /** Google-family providers whose scope asks for `openid`. See the test below. */
-  const ATTESTABLE = new Set(["gemini-cli"]);
+  const ATTESTABLE = new Set([]);
 
   for (const p of google) {
     it(`asks ${p.id} for a refresh token it will actually issue`, async () => {
@@ -248,9 +237,8 @@ describe("the Google-family authorize URL", () => {
       // `openid` is what makes Google mint the id_token the server attests the
       // account link with, and a nonce is meaningless without one — an
       // unrecognised parameter is something a strict authorization server may
-      // refuse outright. Pinned BY NAME in both directions, because either drift
-      // is silent: gemini-cli losing the scope downgrades every link to
-      // unproven, and antigravity regaining it re-opens the first-party consent
+      // refuse outright. Pinned BY NAME, because the drift is silent:
+      // antigravity regaining the scope re-opens the first-party consent
       // screen that hangs (the relay dropped it for exactly that reason — see
       // its overlay in apps/api/src/lib/providers/registry/antigravity).
       const q = paramsOf(await authorizeUrlFor(p.id));

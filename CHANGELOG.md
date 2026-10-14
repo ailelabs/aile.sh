@@ -10,6 +10,11 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Removed
+
+- Gemini CLI sign-in is retired, because Google ended it for personal accounts:
+  link a Google login as Antigravity, or a Gemini API key as `gemini`.
+
 ### Added
 
 - `aile local setup`: lend your own GPU in one command. It reads this machine
