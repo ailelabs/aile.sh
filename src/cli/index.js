@@ -76,6 +76,8 @@ const BOOLEAN_FLAGS = new Set([
   // --nodeless --label work` must not read "--label" as the value of "--nodeless"
   // and then link an account named nothing.
   "nodeless", "no-nodeless",
+  // `aile setup --no-route claude` must not read "claude" as the flag's value.
+  "no-route",
   // Same again for the attended-job runner: `aile mcp answer --keep-home --
   // claude -p` must not read "--" (or the command) as the flag's value.
   "keep-home",

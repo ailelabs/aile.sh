@@ -21,7 +21,7 @@
  */
 
 import fs from "node:fs";
-import { planJson, readJson, fileExists, dirExists, revertJson, writeText } from "./files.js";
+import { planJson, readJson, fileExists, dirExists, revertJson, writeText, sameJson } from "./files.js";
 import {
   tomlString, topLevelLine, hasForeignTable, setTopLevel, setBlock, blockBody, lineValue,
 } from "./toml.js";
@@ -53,7 +53,7 @@ const claude = {
   changesDefault: true,
   detect: (ctx) => detectTool(ctx, "claude"),
   files: (ctx) => [claudeFile(ctx)],
-  plan(ctx, { key, model = null }) {
+  plan(ctx, { key, model = null, smallModel = null, staleRoute = null, prior = null }) {
     const file = claudeFile(ctx);
     let conflict = null;
     const edit = planJson(file, (ops) => {
@@ -71,7 +71,21 @@ const claude = {
         conflict = conflict || "uses an apiKeyHelper, which would replace the aile key";
         ops.unset(["apiKeyHelper"]);
       }
-      if (model) ops.set(["env", "ANTHROPIC_MODEL"], model);
+      // The haiku slot is what Claude Code runs its background calls on; an auto route
+      // sends the small ones to its light tier. A route taken back out (`staleRoute`: a new
+      // key, --no-route, a --model of its own) does not stay in either slot: the slot gets back
+      // the value the route replaced (the earliest `prev` among `prior`, the tool's recorded
+      // changes), or is emptied when there was none. A slot that no longer holds the route is
+      // the user's now.
+      const slot = (name, value) => {
+        if (value) { ops.set(["env", name], value); return; }
+        if (!staleRoute || ops.get(["env", name]) !== staleRoute) return;
+        const was = (prior || []).find((r) => r.kind === "json-set" && r.file === file && sameJson(r.path, ["env", name]));
+        if (was?.had && was.prev !== staleRoute) ops.set(["env", name], was.prev);
+        else ops.unset(["env", name]);
+      };
+      slot("ANTHROPIC_MODEL", model);
+      slot("ANTHROPIC_DEFAULT_HAIKU_MODEL", smallModel);
     }, { secret: true });
     if (!edit.ok) return { ok: false, reason: edit.reason };
     return { ok: true, edits: [edit], conflict };
@@ -100,7 +114,7 @@ const codex = {
   changesDefault: true,
   detect: (ctx) => detectTool(ctx, "codex"),
   files: (ctx) => [codexFile(ctx)],
-  plan(ctx, { key, model = null }) {
+  plan(ctx, { key, model = null, staleRoute = null, prior = null }) {
     const file = codexFile(ctx);
     const before = readText(file);
     const text0 = before ?? "";
@@ -123,6 +137,17 @@ const codex = {
     // No model unless asked: Codex's own default is a bare id, which aile
     // serves on the codex provider for this client.
     if (model) setKey("model", `model = ${tomlString(model)}`);
+    else if (staleRoute && lineValue(topLevelLine(text0, "model")) === staleRoute) {
+      // A route taken back out does not stay as Codex's model: the line the route replaced
+      // (the earliest `prev` among `prior`, the tool's recorded changes) comes back, or goes
+      // when there was none. Undo restores what was there either way.
+      const was = (prior || []).find((r) => r.kind === "toml-key" && r.file === file && r.key === "model");
+      if (was?.had && lineValue(was.prev) !== staleRoute) setKey("model", was.prev.trim());
+      else {
+        records.push({ kind: "toml-key", file, key: "model", had: true, prev: topLevelLine(text0, "model"), value: null });
+        text = setTopLevel(text, "model", null);
+      }
+    }
 
     const body = [
       "[model_providers.aile]",
@@ -155,7 +180,7 @@ const codex = {
         if (r.kind === "toml-key") {
           const cur = topLevelLine(text, r.key);
           // Only a line still as we left it goes back; one the user changed is theirs.
-          if (cur !== null && cur.trim() === r.value) text = setTopLevel(text, r.key, r.had ? r.prev : null);
+          if (cur === null ? r.value === null : cur.trim() === r.value) text = setTopLevel(text, r.key, r.had ? r.prev : null);
         } else if (r.kind === "toml-block") {
           text = setBlock(text, null);
         }

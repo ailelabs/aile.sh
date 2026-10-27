@@ -35,6 +35,8 @@ export const COMMANDS = [
       ["aile setup --key -", "use an existing key, read from stdin"],
       ["aile setup --new-key", "mint a fresh key instead of reusing the saved one"],
       ["aile setup claude --shortcut-name cc-aile", "choose the shortcut's name"],
+      ["aile setup claude codex --route aile/auto", "send both tools through one of your key's routes"],
+      ["aile setup claude codex --no-route", "…and back to their own models"],
       ["aile setup --dry-run", "show what would change, write nothing"],
     ],
     notes: [

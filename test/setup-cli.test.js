@@ -19,7 +19,7 @@ import { describe, expect, it, afterAll, beforeAll } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { browserKey } from "../src/setup/key.js";
+import { browserKey, describeKey } from "../src/setup/key.js";
 
 const CLI = path.join(import.meta.dirname, "..", "src", "cli", "index.js");
 const GOOD = `sk-aile-${"1a".repeat(24)}`;
@@ -67,6 +67,12 @@ beforeAll(() => {
       if (url.pathname.startsWith("/keys/") && req.method === "DELETE") {
         stub.revoked.push(url.pathname.slice("/keys/".length));
         return Response.json({ success: true, data: { ok: true } });
+      }
+      if (url.pathname === "/keys" && req.method === "GET") {
+        if (!/^Bearer ail_/.test(req.headers.get("authorization") || "")) return Response.json({ success: false, message: "no" }, { status: 401 });
+        return Response.json({ success: true, data: { keys: [
+          { id: "k1", prefix: MINTED.slice(0, 16), aliases: [{ name: "aile/auto", auto: true, targets: [] }, { name: "fast", targets: [] }] },
+        ] } });
       }
       if (url.pathname === "/keys" && req.method === "POST") {
         if (!/^Bearer ail_/.test(req.headers.get("authorization") || "")) return Response.json({ success: false, message: "no" }, { status: 401 });
@@ -389,6 +395,290 @@ describe("keys change, accounts change, and uninstall", () => {
     const res = await run(m, ["logout"]);
     expect(res.out).toContain("Your coding tools still use aile");
     expect(res.out).toContain("aile setup --remove");
+  });
+});
+
+describe("the route setup remembers", () => {
+  const ROUTE = "aile/auto";
+  const sc = (m, tool = "claude") => path.join(m.bin, process.platform === "win32" ? `${tool}aile.cmd` : `${tool}aile`);
+  const manifestOf = (m) => readJ(path.join(m.data, "integrations.json"));
+  const both = ["setup", "claude", "codex", "--mode", "both"];
+
+  it("belongs to the key it was chosen on: kept for that key, taken out of every tool for another", async () => {
+    const m = machine();
+    expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+    expect(manifestOf(m).route).toEqual({ name: ROUTE, prefix: describeKey(GOOD), tools: ["claude", "codex"] });
+    const env = () => readJ(m.p(".claude", "settings.json")).env;
+    expect(env()).toMatchObject({ ANTHROPIC_MODEL: ROUTE, ANTHROPIC_DEFAULT_HAIKU_MODEL: ROUTE });
+    expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).toContain(`model = "${ROUTE}"`);
+
+    // The same key again: the route is re-applied, in the config and in the shortcuts.
+    expect((await run(m, ["setup", "refresh", "--key", GOOD])).code).toBe(0);
+    expect(env().ANTHROPIC_MODEL).toBe(ROUTE);
+    expect(fs.readFileSync(sc(m), "utf8")).toContain(ROUTE);
+
+    // Another key has no such route: it is left out, and says so.
+    const res = await run(m, ["setup", "refresh", "--key", OTHER]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain(`Route ${ROUTE} left out`);
+    expect(env().ANTHROPIC_AUTH_TOKEN).toBe(OTHER);
+    expect(env()).not.toHaveProperty("ANTHROPIC_MODEL");
+    expect(env()).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+    expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).not.toMatch(/^model = /m);
+    expect(fs.readFileSync(sc(m), "utf8")).not.toContain(ROUTE);
+    expect(fs.readFileSync(sc(m, "codex"), "utf8")).not.toContain(ROUTE);
+    expect(manifestOf(m).route ?? null).toBeNull();
+
+    // …and it does not come back with a later refresh.
+    expect((await run(m, ["setup", "refresh", "--key", OTHER])).code).toBe(0);
+    expect(env()).not.toHaveProperty("ANTHROPIC_MODEL");
+  });
+
+  it("an undo after the route was taken out still restores the files from before aile", async () => {
+    const m = machine();
+    const codexFile = m.p(".codex", "config.toml");
+    fs.mkdirSync(path.dirname(codexFile), { recursive: true });
+    const before = 'model = "o3"\n';
+    fs.writeFileSync(codexFile, before);
+    expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+    expect((await run(m, ["setup", "refresh", "--key", OTHER])).code).toBe(0);
+    // The route is out, and Codex has its own model back.
+    expect(fs.readFileSync(codexFile, "utf8")).toContain(before);
+    expect(fs.readFileSync(codexFile, "utf8")).not.toContain(ROUTE);
+    expect((await run(m, ["setup", "--remove", "--yes"])).code).toBe(0);
+    expect(fs.readFileSync(codexFile, "utf8")).toBe(before);
+    expect(fs.existsSync(m.p(".claude", "settings.json"))).toBe(false);
+  });
+
+  it("--remove forgets it, so a fresh setup and a refresh never route", async () => {
+    const m = machine();
+    expect((await run(m, ["setup", "claude", "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+    expect(fs.readFileSync(sc(m), "utf8")).toContain(ROUTE);
+    expect((await run(m, ["setup", "--remove", "--yes"])).code).toBe(0);
+    expect(manifestOf(m).route).toBeUndefined();
+    expect((await run(m, ["setup", "claude", "--key", GOOD, "--yes"])).code).toBe(0);
+    expect((await run(m, ["setup", "refresh", "--key", GOOD])).code).toBe(0);
+    expect(fs.readFileSync(sc(m), "utf8")).not.toContain(ROUTE);
+    expect(manifestOf(m).route ?? null).toBeNull();
+  });
+
+  it("a plain re-run keeps it; a --model of its own, or --no-route, clears it", async () => {
+    const m = machine();
+    const env = () => readJ(m.p(".claude", "settings.json")).env;
+    expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+
+    expect((await run(m, [...both, "--key", GOOD, "--yes"])).code).toBe(0);
+    expect(manifestOf(m).route.name).toBe(ROUTE);
+    expect(env().ANTHROPIC_MODEL).toBe(ROUTE);
+    expect(fs.readFileSync(sc(m), "utf8")).toContain(ROUTE);
+
+    // Cleared for Claude Code only: Codex still holds it, and the record says so.
+    expect((await run(m, ["setup", "claude", "--mode", "both", "--key", GOOD, "--model", "cc/claude-opus-5", "--yes"])).code).toBe(0);
+    expect(manifestOf(m).route.tools).toEqual(["codex"]);
+    expect(env().ANTHROPIC_MODEL).toBe("cc/claude-opus-5");
+    expect(env()).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+    expect((await run(m, ["setup", "refresh", "--key", GOOD])).code).toBe(0);
+    expect(env().ANTHROPIC_MODEL).toBe("cc/claude-opus-5");
+    expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).toContain(`model = "${ROUTE}"`);
+
+    expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+    expect(env().ANTHROPIC_MODEL).toBe(ROUTE);
+    // `--no-route` takes no value, so it may stand in front of a tool name.
+    expect((await run(m, ["setup", "--no-route", "claude", "codex", "--mode", "both", "--key", GOOD, "--yes"])).code).toBe(0);
+    expect(manifestOf(m).route ?? null).toBeNull();
+    expect(env()).not.toHaveProperty("ANTHROPIC_MODEL");
+    expect(env()).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+    expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).not.toMatch(/^model = /m);
+    expect(fs.readFileSync(sc(m), "utf8")).not.toContain(ROUTE);
+
+    // Every tool at once: refresh takes it out of all of them.
+    expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+    expect((await run(m, ["setup", "refresh", "--key", GOOD, "--no-route"])).code).toBe(0);
+    expect(manifestOf(m).route ?? null).toBeNull();
+    expect(env()).not.toHaveProperty("ANTHROPIC_MODEL");
+    expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).not.toMatch(/^model = /m);
+  });
+
+  describe("when only some tools hold it", () => {
+    const envOf = (m) => readJ(m.p(".claude", "settings.json")).env;
+    const codexModel = (m) => fs.readFileSync(m.p(".codex", "config.toml"), "utf8").match(/^model = .*/m)?.[0] ?? null;
+    const routedBoth = async (m) => {
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      // Cleared for Claude Code alone: it has a model of its own, and Codex stays on the route.
+      expect((await run(m, ["setup", "claude", "--mode", "both", "--key", GOOD, "--model", "cc/claude-opus-5", "--yes"])).code).toBe(0);
+      expect(manifestOf(m).route.tools).toEqual(["codex"]);
+      expect(codexModel(m)).toBe(`model = "${ROUTE}"`);
+    };
+
+    it("refresh with another key still takes it off the tool that holds it, and says so", async () => {
+      const m = machine();
+      await routedBoth(m);
+      const res = await run(m, ["setup", "refresh", "--key", OTHER]);
+      expect(res.code).toBe(0);
+      expect(res.out).toContain(`Route ${ROUTE} left out`);
+      expect(codexModel(m)).toBeNull();
+      expect(fs.readFileSync(sc(m, "codex"), "utf8")).not.toContain(ROUTE);
+      expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).toContain(OTHER);
+      // Claude Code's model was its own, so the refresh leaves it.
+      expect(envOf(m).ANTHROPIC_MODEL).toBe("cc/claude-opus-5");
+      expect(manifestOf(m).route ?? null).toBeNull();
+    });
+
+    it("refresh --no-route clears the tool that still holds it", async () => {
+      const m = machine();
+      await routedBoth(m);
+      expect((await run(m, ["setup", "refresh", "--key", GOOD, "--no-route"])).code).toBe(0);
+      expect(codexModel(m)).toBeNull();
+      expect(fs.readFileSync(sc(m, "codex"), "utf8")).not.toContain(ROUTE);
+      expect(envOf(m).ANTHROPIC_MODEL).toBe("cc/claude-opus-5");
+      expect(manifestOf(m).route ?? null).toBeNull();
+    });
+
+    it("--remove of one tool leaves the route to the other", async () => {
+      const m = machine();
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      expect((await run(m, ["setup", "--remove", "codex", "--yes"])).code).toBe(0);
+      expect(manifestOf(m).route.tools).toEqual(["claude"]);
+      expect((await run(m, ["setup", "--remove", "claude", "--yes"])).code).toBe(0);
+      expect(manifestOf(m).route).toBeUndefined();
+    });
+
+    it("a plain run on a tool that does not hold it does not route it", async () => {
+      const m = machine();
+      await routedBoth(m);
+      expect((await run(m, ["setup", "claude", "--mode", "both", "--key", GOOD, "--yes"])).code).toBe(0);
+      expect(envOf(m).ANTHROPIC_MODEL).toBe("cc/claude-opus-5");
+      expect(manifestOf(m).route.tools).toEqual(["codex"]);
+    });
+
+    it("a different route for some of the holders is refused until the rest are named", async () => {
+      const m = machine();
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      const res = await run(m, ["setup", "claude", "--mode", "both", "--key", GOOD, "--route", "fast", "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain(`Codex still uses the route ${ROUTE}`);
+      expect(res.out).toContain("aile setup claude codex --route fast");
+      expect(codexModel(m)).toBe(`model = "${ROUTE}"`);
+      expect((await run(m, [...both, "--key", GOOD, "--route", "fast", "--yes"])).code).toBe(0);
+      expect(codexModel(m)).toBe('model = "fast"');
+      expect(manifestOf(m).route).toEqual({ name: "fast", prefix: describeKey(GOOD), tools: ["claude", "codex"] });
+    });
+
+    it("refresh with another key drops it from tools set up in different modes", async () => {
+      const m = machine();
+      // Claude Code in its config and shortcut, Codex as a shortcut alone: refresh runs them as two groups.
+      expect((await run(m, ["setup", "claude", "--mode", "both", "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      expect((await run(m, ["setup", "codex", "--mode", "shortcut", "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      expect(manifestOf(m).route.tools).toEqual(["claude", "codex"]);
+      expect(fs.readFileSync(sc(m, "codex"), "utf8")).toContain(ROUTE);
+
+      const res = await run(m, ["setup", "refresh", "--key", OTHER]);
+      expect(res.code).toBe(0);
+      expect(res.out).toContain(`Route ${ROUTE} left out`);
+      expect(envOf(m)).not.toHaveProperty("ANTHROPIC_MODEL");
+      expect(fs.readFileSync(sc(m), "utf8")).not.toContain(ROUTE);
+      expect(fs.readFileSync(sc(m, "codex"), "utf8")).not.toContain(ROUTE);
+      expect(manifestOf(m).route ?? null).toBeNull();
+    });
+
+    it("a record from before the list of tools still refreshes, and still drops", async () => {
+      const m = machine();
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      const oldShape = () => {
+        const man = manifestOf(m);
+        delete man.route.tools;
+        fs.writeFileSync(path.join(m.data, "integrations.json"), JSON.stringify(man));
+      };
+      oldShape();
+      expect((await run(m, ["setup", "refresh", "--key", GOOD])).code).toBe(0);
+      expect(envOf(m).ANTHROPIC_MODEL).toBe(ROUTE);
+      expect(codexModel(m)).toBe(`model = "${ROUTE}"`);
+      expect(manifestOf(m).route.tools).toEqual(["claude", "codex"]);
+
+      oldShape();
+      const res = await run(m, ["setup", "refresh", "--key", OTHER]);
+      expect(res.code).toBe(0);
+      expect(res.out).toContain(`Route ${ROUTE} left out`);
+      expect(envOf(m)).not.toHaveProperty("ANTHROPIC_MODEL");
+      expect(codexModel(m)).toBeNull();
+      expect(manifestOf(m).route ?? null).toBeNull();
+    });
+  });
+
+  describe("taking it out gives a tool back its own model", () => {
+    const settings = { env: { ANTHROPIC_MODEL: "claude-opus-4", ANTHROPIC_DEFAULT_HAIKU_MODEL: "my-haiku" } };
+    const seed = (m) => {
+      fs.mkdirSync(m.p(".claude"), { recursive: true });
+      fs.mkdirSync(m.p(".codex"), { recursive: true });
+      fs.writeFileSync(m.p(".claude", "settings.json"), JSON.stringify(settings));
+      fs.writeFileSync(m.p(".codex", "config.toml"), 'model = "o3"\n');
+    };
+    const envOf = (m) => readJ(m.p(".claude", "settings.json")).env;
+    const codexModel = (m) => fs.readFileSync(m.p(".codex", "config.toml"), "utf8").match(/^model = .*/m)?.[0] ?? null;
+
+    it("--no-route restores the models the route replaced, and --remove still restores the files", async () => {
+      const m = machine();
+      seed(m);
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      expect(envOf(m)).toMatchObject({ ANTHROPIC_MODEL: ROUTE, ANTHROPIC_DEFAULT_HAIKU_MODEL: ROUTE });
+      expect(codexModel(m)).toBe(`model = "${ROUTE}"`);
+
+      expect((await run(m, [...both, "--key", GOOD, "--no-route", "--yes"])).code).toBe(0);
+      expect(envOf(m)).toMatchObject({ ANTHROPIC_MODEL: "claude-opus-4", ANTHROPIC_DEFAULT_HAIKU_MODEL: "my-haiku" });
+      expect(codexModel(m)).toBe('model = "o3"');
+
+      expect((await run(m, ["setup", "--remove", "--yes"])).code).toBe(0);
+      expect(readJ(m.p(".claude", "settings.json"))).toEqual(settings);
+      expect(fs.readFileSync(m.p(".codex", "config.toml"), "utf8")).toBe('model = "o3"\n');
+    });
+
+    it("refresh with another key gives them back too", async () => {
+      const m = machine();
+      seed(m);
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      expect((await run(m, ["setup", "refresh", "--key", OTHER])).code).toBe(0);
+      expect(envOf(m)).toMatchObject({ ANTHROPIC_MODEL: "claude-opus-4", ANTHROPIC_DEFAULT_HAIKU_MODEL: "my-haiku", ANTHROPIC_AUTH_TOKEN: OTHER });
+      expect(codexModel(m)).toBe('model = "o3"');
+    });
+
+    it("a slot the user changed since is left alone", async () => {
+      const m = machine();
+      seed(m);
+      expect((await run(m, [...both, "--key", GOOD, "--route", ROUTE, "--yes"])).code).toBe(0);
+      const s = readJ(m.p(".claude", "settings.json"));
+      s.env.ANTHROPIC_MODEL = "mine";
+      fs.writeFileSync(m.p(".claude", "settings.json"), JSON.stringify(s));
+      fs.writeFileSync(m.p(".codex", "config.toml"), fs.readFileSync(m.p(".codex", "config.toml"), "utf8").replace(`model = "${ROUTE}"`, 'model = "mine-too"'));
+
+      expect((await run(m, [...both, "--key", GOOD, "--no-route", "--yes"])).code).toBe(0);
+      expect(envOf(m).ANTHROPIC_MODEL).toBe("mine");
+      expect(envOf(m).ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe("my-haiku");
+      expect(codexModel(m)).toBe('model = "mine-too"');
+    });
+  });
+
+  it("signed in, a route the key does not have is refused with the ones it has; not signed in, it is accepted", async () => {
+    const m = machine({ config: { renterToken: `ail_${"a".repeat(48)}` } });
+    const bad = await run(m, ["setup", "claude", "--route", "nope", "--yes"]);
+    expect(bad.code).toBe(1);
+    expect(bad.out).toContain('no route named "nope"');
+    expect(bad.out).toContain("aile/auto, fast");
+    expect(fs.existsSync(sc(m))).toBe(false);
+    expect(fs.existsSync(path.join(m.data, "integrations.json"))).toBe(false);
+
+    expect((await run(m, ["setup", "claude", "--route", "fast", "--yes"])).code).toBe(0);
+    expect(fs.readFileSync(sc(m), "utf8")).toContain("fast");
+
+    const offline = machine();
+    expect((await run(offline, ["setup", "claude", "--key", GOOD, "--route", "anything", "--yes"])).code).toBe(0);
+    expect(fs.readFileSync(sc(offline), "utf8")).toContain("anything");
+  });
+
+  it("--route and --no-route together are refused", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "claude", "--key", GOOD, "--route", ROUTE, "--no-route", "--yes"]);
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("contradict");
   });
 });
 

@@ -75,6 +75,40 @@ function tidy(ctx, p) {
   return p && p.startsWith(h) ? `~${p.slice(h.length)}` : p;
 }
 
+/** The two tools that can be sent through a named route, in place of a model. */
+const isRoutable = (t) => t.id === "claude" || t.id === "codex";
+
+/**
+ * The tools holding the saved route (`manifest.route.tools`). A record from before the list
+ * existed has none: it means Claude Code and Codex, whichever are set up here.
+ */
+export function routeHolders(manifest) {
+  const r = manifest.route;
+  if (!r) return [];
+  return (Array.isArray(r.tools) ? r.tools : ["claude", "codex"]).filter((id) => manifest.tools[id]);
+}
+
+/**
+ * After a run, write down who holds the route: the tools it sent through it, plus the ones it
+ * did not touch. A run that only wrote a tool's shortcut leaves that tool's claim alone when its
+ * config was set up too, because the route is still in the config file.
+ */
+function noteRoute(manifest, { holders, route, prefix, plans, routeOf, before }) {
+  const held = new Set(holders);
+  for (const p of plans) {
+    if (!p.done || !isRoutable(p.tool)) continue;
+    const configured = (before.tools[p.tool.id]?.modes || []).some((m) => m === "config" || m === "both");
+    if (routeOf(p.tool)) held.add(p.tool.id);
+    else if (p.config || !configured) held.delete(p.tool.id);
+  }
+  const tools = [...held].filter((id) => manifest.tools[id]);
+  if (!tools.length) { delete manifest.route; return; }
+  const routed = plans.some((p) => p.done && routeOf(p.tool));
+  manifest.route = routed
+    ? { name: route, prefix, tools }
+    : { name: manifest.route.name, prefix: manifest.route.prefix, tools };
+}
+
 const fundUrl = (ctx) => `${ctx.web}/dash?tab=wallet&focus=deposit`;
 const keysUrl = (ctx) => `${ctx.web}/dash?tab=keys`;
 
@@ -103,6 +137,11 @@ export async function setupCommand(args) {
   if (mode && !["shortcut", "default", "both"].includes(mode)) {
     fail(`--mode must be shortcut, default or both (got "${mode}").`);
   }
+  // A route name on the key (an auto route, say) to send Claude Code and Codex through, in
+  // place of a model. Asked for here, or offered below once the key is known.
+  if (args.route === true) fail("--route needs a route name.", "aile setup claude codex --route aile/auto");
+  let route = args.route ? String(args.route).trim() || null : null;
+  if (route && args["no-route"]) fail("--route and --no-route contradict each other.");
 
   // --- which tools -----------------------------------------------------------
   const found = new Map(TOOLS.map((t) => [t.id, t.detect(ctx)]));
@@ -208,23 +247,91 @@ export async function setupCommand(args) {
     }
   }
 
+  // --- a route to point Claude Code and Codex at ---------------------------------
+  // The route is remembered with the key it was chosen on and the tools it was given to
+  // (`manifest.route = {name, prefix, tools}`). A re-run keeps it, on those tools, while that
+  // key is the one in use; a different key, --no-route, or a --model of its own takes it back
+  // out of the tools this run names — and only those — since its name is a 400 on a key that
+  // has no such route.
+  const before = loadManifest();
+  const saved = before.route || null;
+  const holders = routeHolders(before);
+  const routable = chosen.some(isRoutable);
+  const prefix = key ? describeKey(key) : null;
+  const clearing = Boolean(args["no-route"]) || Boolean(args.model);
+  const keep = Boolean(saved) && !route && !clearing && saved.prefix === prefix;
+  // The route a tool is sent through, if any.
+  const routeOf = (t) => (!isRoutable(t) ? null : route || (keep && holders.includes(t.id) ? saved.name : null));
+  const dropped = saved && !route && !clearing && !keep && chosen.some((t) => holders.includes(t.id)) ? saved.name : null;
+  if (dropped && !args.quiet) console.log(`  ${C.dim}Route ${dropped} left out: this is not the key it was chosen for.${C.reset}`);
+
+  // Signed in, the key's own routes are on hand: refuse a --route it does not have, or
+  // offer its auto routes. A convenience, so any failure (offline, an older server, a key
+  // made elsewhere) just skips it.
+  const token = loadConfig().renterToken;
+  const asked = Boolean(args.route && route);
+  if (routable && !dryRun && token && keyInfo?.id && (asked || (!chosen.some(routeOf) && !clearing && interactive))) {
+    let routes = null;
+    try {
+      routes = (await api.listKeys({ serverUrl: server, insecure, token }))?.keys?.find((k) => k.id === keyInfo.id)?.aliases ?? null;
+    } catch { /* offline, an older server: accept as given */ }
+    if (asked && routes && !routes.some((a) => a?.name === route)) {
+      const names = routes.map((a) => a?.name).filter(Boolean);
+      fail(`Your key has no route named "${route}".`, names.length ? `Its routes: ${names.join(", ")}` : `It has none yet — add one at ${keysUrl(ctx)}`);
+    }
+    const autos = asked ? [] : routes?.filter((a) => a?.auto === true) || [];
+    if (autos.length) {
+      const pick = await promptChoice(`${C.bold}Point Claude Code and Codex at an auto route?${C.reset}`, [
+        ...autos.map((a) => ({ label: a.name, note: "picks a cheap or strong model per request" })),
+        { label: "No", note: "keep their own models" },
+      ]);
+      if (pick !== null && pick < autos.length) route = autos[pick].name;
+    }
+  }
+  // One name per machine: a different route given to some of the tools holding the saved one
+  // would leave the rest on a name the record no longer knows. (`refresh` goes group by group.)
+  if (route && saved && !args.resolvedKey && (saved.name !== route || saved.prefix !== prefix)) {
+    const others = holders.filter((id) => !chosen.some((t) => t.id === id));
+    if (others.length) {
+      // The same name on another key is a different route, so say which part differs; the key
+      // itself is never echoed.
+      const onKey = saved.name === route ? " on the key it was chosen with" : "";
+      fail(
+        `${others.map((id) => getTool(id)?.label || id).join(" and ")} still ${others.length === 1 ? "uses" : "use"} the route ${saved.name}${onKey}.`,
+        `Name ${others.length === 1 ? "it" : "them"} too: aile setup ${[...new Set([...chosen.map((t) => t.id), ...others])].join(" ")} --route ${route}${args.key ? " --key <that key>" : ""}`,
+      );
+    }
+  }
+
   // --- plan ------------------------------------------------------------------
   const plans = [];
   const binDir = chooseBinDir(ctx);
   for (const t of chosen) {
     if (printsOnly(t)) { plans.push({ tool: t, manual: true }); continue; }
+    // The route replaces the model for the two tools that talk to a named route; Claude Code's
+    // background calls run on its haiku slot, so that points at the route too.
+    const toRoute = routeOf(t);
+    const chosenModel = toRoute || (args.model ? String(args.model) : null);
+    const smallModel = toRoute && t.id === "claude" ? toRoute : null;
+    // A tool that held the route and is no longer sent through it gives it back (`stale`).
+    const stale = !toRoute && isRoutable(t) && holders.includes(t.id) ? saved.name : null;
     const plan = { tool: t, config: null, shortcut: null, error: null, conflict: null };
     const wantConfig = t.kinds.includes("config") && (!t.changesDefault || mode !== "shortcut");
     const wantShortcut = t.kinds.includes("shortcut") && (!t.changesDefault || mode !== "default");
+    // --mode shortcut leaves the tool's own settings unwritten, so a route there stays (and the
+    // tool stays a holder): say so rather than let --no-route look done.
+    if (stale && !wantConfig && t.kinds.includes("config") && !args.quiet) {
+      console.log(`  ${C.dim}${t.label}'s own settings still use the route ${stale}; run without --mode shortcut to take it out.${C.reset}`);
+    }
     if (wantConfig) {
-      const p = t.plan(ctx, { key, model: args.model ? String(args.model) : null, models: listed });
+      const p = t.plan(ctx, { key, model: chosenModel, smallModel, staleRoute: stale, prior: before.tools[t.id]?.records, models: listed });
       if (!p.ok) plan.error = p.reason;
       else { plan.config = p; plan.conflict = p.conflict; }
     }
     if (wantShortcut) {
       const name = customName && chosen.filter((x) => x.kinds.includes("shortcut")).length === 1 ? customName : shortcutName(t.id);
       const rec = recipe(t.runner, {
-        key, ...ctx, model: args.model ? String(args.model) : null,
+        key, ...ctx, model: chosenModel, smallModel,
         defaultModel: NEEDS_MODEL.has(t.runner) ? fallbackModel : null,
       });
       // Installed but not on PATH (Claude Code's ~/.local/bin on a stock macOS,
@@ -244,6 +351,11 @@ export async function setupCommand(args) {
   const work = plans.filter((p) => !p.manual);
   if (work.length) {
     console.log(`\n${C.bold}${dryRun ? "Would change" : "Changes"}${C.reset}${key && !dryRun ? `  ${C.dim}key ${describeKey(key)}${keyNote ? ` · ${keyNote}` : ""}${C.reset}` : ""}`);
+    const routedWork = work.filter((p) => routeOf(p.tool));
+    if (routedWork.length) {
+      const where = routedWork.map((p) => (p.tool.id === "claude" ? "Claude Code main and haiku" : "Codex model")).join(", ");
+      console.log(`  ${C.dim}route     ${route || saved.name} (${where})${C.reset}`);
+    }
     for (const p of work) {
       console.log(`  ${C.bold}${p.tool.label}${C.reset}`);
       if (p.error) console.log(`    ${C.yellow}skipped${C.reset}  ${p.error}`);
@@ -307,6 +419,7 @@ export async function setupCommand(args) {
         p.error = `could not write: ${e.message}`;
       }
     }
+    if (routable) noteRoute(manifest, { holders, route: route || saved?.name, prefix, plans: actionable, routeOf, before });
     saveManifest(manifest);
 
     console.log();
@@ -324,7 +437,7 @@ export async function setupCommand(args) {
   // `aile setup refresh` runs this once per mode group and prints the footer
   // itself, once, for all of them.
   if (!args.noNext) printNext(plans, ctx, { binDir, found });
-  return { plans, binDir, found, ctx };
+  return { plans, binDir, found, ctx, dropped };
 }
 
 /** How a tool was found, in a few words for a menu or a table. */
@@ -371,7 +484,7 @@ function describeRecords(records, key) {
       const n = r.added ?? 0;
       out.push(`add    ${n} entr${n === 1 ? "y" : "ies"} to ${r.path.join(".")}${r.hadArray ? ` (replacing any earlier aile entries)` : ""}`);
     } else if (r.kind === "toml-key") {
-      out.push(`set    ${r.value}${r.had ? `  (was: ${r.prev.trim()})` : ""}`);
+      out.push(r.value === null ? `remove ${r.key}${r.had ? `  (was: ${r.prev.trim()})` : ""}` : `set    ${r.value}${r.had ? `  (was: ${r.prev.trim()})` : ""}`);
     } else if (r.kind === "toml-block") {
       out.push("add    [model_providers.aile] (name, base_url, wire_api, experimental_bearer_token)");
     }
@@ -557,6 +670,10 @@ export async function setupRemove(args, names) {
     delete manifest.tools[id];
     console.log(okLine(tool?.label || id));
   }
+  // The route goes with the last tool that was pointed at it.
+  const held = routeHolders(manifest);
+  if (held.length) manifest.route = { ...manifest.route, tools: held };
+  else delete manifest.route;
 
   // NOTHING LEFT USING THE KEY: a full uninstall forgets it here too, so this
   // machine holds no credential for a setup it no longer has. It still exists
@@ -642,10 +759,14 @@ export async function setupRefresh(args) {
     groups.get(t.mode).push(t.id);
   }
   const runs = [];
+  // Each run keeps the route record until the last tool holding it has let go of it, so the
+  // groups after the first still find it.
   for (const [mode, ids] of groups) {
     runs.push(await setupCommand({ ...args, _: ["setup", ...ids], mode, yes: true, quiet: true, noNext: true, resolvedKey: got }));
   }
   const done = runs.filter(Boolean);
+  const dropped = done.find((r) => r.dropped)?.dropped;
+  if (dropped) console.log(`  ${C.dim}Route ${dropped} left out: this is not the key it was chosen for.${C.reset}`);
   if (done.length) {
     const last = done[done.length - 1];
     printNext(done.flatMap((r) => r.plans), last.ctx, { binDir: last.binDir, found: last.found });

@@ -59,6 +59,14 @@ a patch bump fixes something.
   than 25 untested models ask first too (`--yes` skips it).
   `--timeout <seconds>` sets the wait per call.
 - `aile connect` points a nodeless link at `aile test`, since it is not tested at link.
+- `aile setup --route <name>` points Claude Code (its main and haiku models) and Codex at
+  one of your key's routes, such as an auto route that picks a cheap or strong model per
+  request. Signed in, setup offers your key's auto routes itself, and refuses a route the
+  key does not have. The route is remembered with its key and the tools it was given to:
+  `aile setup refresh` keeps it on those tools for that key and takes it out of them for
+  another. `--no-route` (or a `--model` of your own, or `aile setup --remove`) takes it
+  out of the tools you name only, and gives each back the model it had before. A different
+  route for only some of the tools holding one is refused until you name the rest.
 
 ### Changed
 

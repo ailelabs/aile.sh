@@ -65,12 +65,22 @@ rewritten; you get the snippet instead. Every value replaced is recorded.
 | `--new-key` | Mint a new key instead of reusing the saved one. |
 | `--model <id>` | A default model for the tools that take one. |
 | `--models all` | Give Droid and OpenClaw every model, not just Claude and Codex. |
+| `--route <name>` | Point Claude Code (main and haiku models) and Codex at one of your key's routes. Signed in, a route the key lacks is refused. |
+| `--no-route` | Take that route back out of the tools you name, and give them back the models they had. |
 | `--shortcut-name <n>` | Name the shortcut, when setting up one tool. |
 | `--dry-run` | Show what would change. Write nothing. |
 
 `aile setup status` shows what is set up and where. `aile setup refresh` gives
 every tool already set up the current key: `--new-key` mints a new one (after
 revoking a key, or signing in to another account), and `--key` uses one you have.
+A route set with `--route` goes with its key and the tools it was given to:
+refresh keeps it on those tools for that key and takes it out of them for
+another (`refresh --no-route` takes it out for good). `--no-route`, or a
+`--model` of your own, on some tools takes it out of those only; the rest keep
+it. Taking it out gives a tool back the model the route replaced (Claude Code's
+`ANTHROPIC_MODEL` and haiku slot, Codex's `model`), or none if it had none, and
+leaves a model you changed yourself since. A different route for only some of
+the tools holding one is refused until you name the rest.
 
 `aile setup --remove [tool…]` puts every file back as it was and deletes the
 shortcuts. Removing every tool also forgets the key on this machine, and

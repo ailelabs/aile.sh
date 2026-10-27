@@ -15,9 +15,10 @@ import { setTopLevel, setBlock, blockBody, topLevelLine, hasForeignTable, lineVa
 import { planJson, commitEdit, revertJson, readJson, ownsBy, writeText } from "../src/setup/files.js";
 import { shScript, cmdScript, validShortcutName, chooseBinDir, foreignShortcut, removeShortcut } from "../src/setup/shortcuts.js";
 import { recipe, childEnv } from "../src/setup/runners.js";
+import { getTool, revertTool } from "../src/setup/tools.js";
 import { makeCtx, webOrigin, bases } from "../src/setup/ctx.js";
 import { spawnPlan, cmdEscapeArg, batchReparses } from "../src/setup/exec.js";
-import { splitRunArgv } from "../src/cli/setup-command.js";
+import { splitRunArgv, routeHolders } from "../src/cli/setup-command.js";
 import { curatedModels, defaultModel, isClaudeModel } from "../src/setup/models.js";
 import { mergeRecords } from "../src/setup/manifest.js";
 
@@ -208,9 +209,202 @@ describe("launch recipes", () => {
     expect(r.env.AILE_API_KEY).toBe(KEY);
   });
 
+  it("a route names the model: Claude Code's main and haiku slots, and only with a small model the haiku one", () => {
+    const routed = recipe("claude", { ...c, model: "aile/auto", smallModel: "aile/auto" });
+    expect(routed.env.ANTHROPIC_MODEL).toBe("aile/auto");
+    expect(routed.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe("aile/auto");
+    const mainOnly = recipe("claude", { ...c, model: "aile/auto" });
+    expect(mainOnly.env.ANTHROPIC_MODEL).toBe("aile/auto");
+    expect(mainOnly.env).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+  });
+
+  it("a route names the model: Codex gets it as its model override", () => {
+    expect(recipe("codex", { ...c, model: "aile/auto" }).args).toContain("model=aile/auto");
+  });
+
   it("tools with no picker get aile's default model", () => {
     expect(recipe("aider", { ...c, defaultModel: "cc/claude-sonnet-5" }).args).toEqual(["--model", "openai/cc/claude-sonnet-5"]);
     expect(recipe("qwen", { ...c, model: "codex/gpt-5.5" }).env.OPENAI_MODEL).toBe("codex/gpt-5.5");
+  });
+});
+
+describe("Claude Code's settings.json with a route", () => {
+  it("writes the haiku slot beside the model, and undo takes both back out", () => {
+    const home = scratch();
+    const dir = path.join(home, ".claude");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "settings.json");
+    const original = { theme: "dark", env: { FOO: "1" } };
+    fs.writeFileSync(file, JSON.stringify(original));
+    const ctx = makeCtx({ env: { CLAUDE_CONFIG_DIR: dir }, home, serverUrl: "https://api.aile.test" });
+    const claude = getTool("claude");
+
+    const plan = claude.plan(ctx, { key: KEY, model: "aile/auto", smallModel: "aile/auto" });
+    expect(plan.ok).toBe(true);
+    const records = plan.edits.flatMap((e) => commitEdit(e));
+    const env = JSON.parse(fs.readFileSync(file, "utf8")).env;
+    expect(env.ANTHROPIC_MODEL).toBe("aile/auto");
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe("aile/auto");
+    expect(env.FOO).toBe("1");
+
+    revertTool(claude, ctx, records);
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(original);
+  });
+});
+
+describe("a route taken back out of the tools", () => {
+  const ctxFor = (home, env = {}) => makeCtx({ env, home, serverUrl: "https://api.aile.test" });
+
+  it("Claude Code: both slots go when they still hold the route; a model of the user's own stays", () => {
+    const home = scratch();
+    const dir = path.join(home, ".claude");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "settings.json");
+    const original = { env: { FOO: "1" } };
+    fs.writeFileSync(file, JSON.stringify(original));
+    const ctx = ctxFor(home, { CLAUDE_CONFIG_DIR: dir });
+    const claude = getTool("claude");
+    const records = [
+      ...claude.plan(ctx, { key: KEY, model: "aile/auto", smallModel: "aile/auto" }).edits.flatMap((e) => commitEdit(e)),
+    ];
+    const out = claude.plan(ctx, { key: KEY, staleRoute: "aile/auto" });
+    records.push(...out.edits.flatMap((e) => commitEdit(e)));
+    const env = JSON.parse(fs.readFileSync(file, "utf8")).env;
+    expect(env).not.toHaveProperty("ANTHROPIC_MODEL");
+    expect(env).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+    expect(env.FOO).toBe("1");
+
+    // A model the user picked since is theirs, and a new one replaces the route's.
+    const mine = JSON.parse(fs.readFileSync(file, "utf8"));
+    mine.env.ANTHROPIC_MODEL = "my-model";
+    mine.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = "aile/auto";
+    fs.writeFileSync(file, JSON.stringify(mine));
+    for (const e of claude.plan(ctx, { key: KEY, staleRoute: "aile/auto" }).edits) commitEdit(e);
+    const after = JSON.parse(fs.readFileSync(file, "utf8")).env;
+    expect(after.ANTHROPIC_MODEL).toBe("my-model");
+    expect(after).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+
+    // Undo still goes back to the file as it was before any route.
+    const merged = mergeRecords([], records);
+    revertTool(claude, ctx, merged);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).env).toEqual(original.env);
+  });
+
+  it("Codex: the model line goes when it holds the route, and undo gives back the user's own", () => {
+    const home = scratch();
+    const dir = path.join(home, ".codex");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "config.toml");
+    const original = 'model = "o3"\n';
+    fs.writeFileSync(file, original);
+    const ctx = ctxFor(home, { CODEX_HOME: dir });
+    const codex = getTool("codex");
+    const first = codex.plan(ctx, { key: KEY, model: "aile/auto" });
+    const records = first.edits.flatMap((e) => commitEdit(e));
+    expect(fs.readFileSync(file, "utf8")).toContain('model = "aile/auto"');
+
+    // Not the route any more (the user changed it): left alone.
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("aile/auto", "gpt-5.5"));
+    expect(codex.plan(ctx, { key: KEY, staleRoute: "aile/auto" }).edits[0].text).toContain('model = "gpt-5.5"');
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("gpt-5.5", "aile/auto"));
+
+    const out = codex.plan(ctx, { key: KEY, staleRoute: "aile/auto" });
+    records.push(...out.edits.flatMap((e) => commitEdit(e)));
+    expect(fs.readFileSync(file, "utf8")).not.toMatch(/^model = /m);
+
+    revertTool(codex, ctx, mergeRecords([], records));
+    expect(fs.readFileSync(file, "utf8")).toBe(original);
+  });
+
+  it("Claude Code: given the recorded changes, a slot gets back the value the route replaced, and is emptied when there was none", () => {
+    const home = scratch();
+    const dir = path.join(home, ".claude");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "settings.json");
+    const original = { env: { FOO: "1", ANTHROPIC_MODEL: "claude-opus-4" } };
+    fs.writeFileSync(file, JSON.stringify(original));
+    const ctx = ctxFor(home, { CLAUDE_CONFIG_DIR: dir });
+    const claude = getTool("claude");
+    const envOf = () => JSON.parse(fs.readFileSync(file, "utf8")).env;
+
+    let records = claude.plan(ctx, { key: KEY, model: "aile/auto", smallModel: "aile/auto" }).edits.flatMap((e) => commitEdit(e));
+    expect(envOf()).toMatchObject({ ANTHROPIC_MODEL: "aile/auto", ANTHROPIC_DEFAULT_HAIKU_MODEL: "aile/auto" });
+
+    // The haiku slot had nothing before the route; the main slot had the user's own model.
+    records = mergeRecords([], records);
+    const out = claude.plan(ctx, { key: KEY, staleRoute: "aile/auto", prior: records });
+    records = mergeRecords(records, out.edits.flatMap((e) => commitEdit(e)));
+    expect(envOf().ANTHROPIC_MODEL).toBe("claude-opus-4");
+    expect(envOf()).not.toHaveProperty("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+
+    // Taking the route out again is a no-op, and undo goes back to the file as it was.
+    expect(claude.plan(ctx, { key: KEY, staleRoute: "aile/auto", prior: records }).edits[0].changed).toBe(false);
+    revertTool(claude, ctx, records);
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual(original);
+  });
+
+  it("Claude Code: a slot the user changed since is left alone, with or without the recorded changes", () => {
+    const home = scratch();
+    const dir = path.join(home, ".claude");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "settings.json");
+    fs.writeFileSync(file, JSON.stringify({ env: { ANTHROPIC_MODEL: "claude-opus-4", ANTHROPIC_DEFAULT_HAIKU_MODEL: "my-haiku" } }));
+    const ctx = ctxFor(home, { CLAUDE_CONFIG_DIR: dir });
+    const claude = getTool("claude");
+    const records = mergeRecords([], claude.plan(ctx, { key: KEY, model: "aile/auto", smallModel: "aile/auto" }).edits.flatMap((e) => commitEdit(e)));
+    const mine = JSON.parse(fs.readFileSync(file, "utf8"));
+    mine.env.ANTHROPIC_MODEL = "my-model";
+    fs.writeFileSync(file, JSON.stringify(mine));
+    for (const e of claude.plan(ctx, { key: KEY, staleRoute: "aile/auto", prior: records }).edits) commitEdit(e);
+    const env = JSON.parse(fs.readFileSync(file, "utf8")).env;
+    expect(env.ANTHROPIC_MODEL).toBe("my-model");
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe("my-haiku");
+  });
+
+  it("Codex: given the recorded changes, the model line the route replaced comes back, and goes when there was none", () => {
+    const home = scratch();
+    const dir = path.join(home, ".codex");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "config.toml");
+    const ctx = ctxFor(home, { CODEX_HOME: dir });
+    const codex = getTool("codex");
+
+    const original = 'model = "o3" # mine\n';
+    fs.writeFileSync(file, original);
+    let records = mergeRecords([], codex.plan(ctx, { key: KEY, model: "aile/auto" }).edits.flatMap((e) => commitEdit(e)));
+    expect(fs.readFileSync(file, "utf8")).toContain('model = "aile/auto"');
+    const out = codex.plan(ctx, { key: KEY, staleRoute: "aile/auto", prior: records });
+    records = mergeRecords(records, out.edits.flatMap((e) => commitEdit(e)));
+    expect(fs.readFileSync(file, "utf8")).toContain('model = "o3" # mine');
+    expect(fs.readFileSync(file, "utf8")).not.toContain("aile/auto");
+    revertTool(codex, ctx, records);
+    expect(fs.readFileSync(file, "utf8")).toBe(original);
+
+    // No model of the user's before the route: none after it either.
+    fs.writeFileSync(file, "");
+    records = mergeRecords([], codex.plan(ctx, { key: KEY, model: "aile/auto" }).edits.flatMap((e) => commitEdit(e)));
+    for (const e of codex.plan(ctx, { key: KEY, staleRoute: "aile/auto", prior: records }).edits) commitEdit(e);
+    expect(fs.readFileSync(file, "utf8")).not.toMatch(/^model = /m);
+
+    // A model line that is not the route any more is the user's.
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("model_provider", 'model = "gpt-5.5"\nmodel_provider'));
+    expect(codex.plan(ctx, { key: KEY, staleRoute: "aile/auto", prior: records }).edits[0].text).toContain('model = "gpt-5.5"');
+  });
+});
+
+describe("who holds the saved route", () => {
+  const tools = { claude: {}, codex: {}, opencode: {} };
+
+  it("is the list on the record, for the tools still set up", () => {
+    expect(routeHolders({ tools, route: { name: "aile/auto", prefix: "k", tools: ["codex", "droid"] } })).toEqual(["codex"]);
+    expect(routeHolders({ tools: {}, route: { name: "aile/auto", prefix: "k", tools: ["codex"] } })).toEqual([]);
+    expect(routeHolders({ tools })).toEqual([]);
+  });
+
+  it("is Claude Code and Codex, whichever are set up, for a record from before the list", () => {
+    const route = { name: "aile/auto", prefix: "k" };
+    expect(routeHolders({ tools, route })).toEqual(["claude", "codex"]);
+    expect(routeHolders({ tools: { opencode: {}, codex: {} }, route })).toEqual(["codex"]);
   });
 });
 

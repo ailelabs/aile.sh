@@ -27,6 +27,7 @@ export const RUNNERS = {
       // Adds every Claude model aile can serve to the `/model` picker.
       CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
       ...(c.model ? { ANTHROPIC_MODEL: c.model } : {}),
+      ...(c.smallModel ? { ANTHROPIC_DEFAULT_HAIKU_MODEL: c.smallModel } : {}),
     }),
     unset: ["ANTHROPIC_API_KEY"],
     args: () => [],

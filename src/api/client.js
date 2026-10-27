@@ -519,6 +519,9 @@ export const api = {
   createKey: ({ name = null, ...opts } = {}) =>
     call("/keys", { ...opts, method: "POST", body: omitAbsent({ name }) }),
 
+  /** The signed-in account's buyer keys (`GET /keys` → {keys}), each with its named routes. Needs the account token. */
+  listKeys: (opts = {}) => call("/keys", opts),
+
   /** Revoke a buyer key on the signed-in account, by its id (not its secret). */
   revokeKey: ({ id, ...opts }) =>
     call(`/keys/${encodeURIComponent(id)}`, { ...opts, method: "DELETE" }),
