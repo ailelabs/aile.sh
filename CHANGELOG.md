@@ -79,6 +79,9 @@ a patch bump fixes something.
 
 ### Fixed
 
+- `aile test` labels a model with no published price as such, rather than "not
+  one of this account's models", and a batch made only of such models no longer
+  ends the run: the next batch is still tested.
 - `aile config localEnabled true` was refused even with an endpoint saved: the
   check read the defaults instead of your settings.
 - `aile start` now stops cleanly when its terminal is closed (SIGHUP), not only

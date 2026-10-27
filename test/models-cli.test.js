@@ -327,6 +327,33 @@ describe("aile test <account>", () => {
     expect(stdout).toMatch(/1 skipped/);
   });
 
+  it("calls a model of this account with no published price skipped for that reason", async () => {
+    serve({
+      onTest: (body) => ({
+        results: [], skipped: body.models, stoppedEarly: true, stopReason: "unpriced",
+        stopDetail: "o3 has no published price on codex, so it cannot be listed",
+      }),
+    });
+    const { code, stdout } = await run(["test", "1", "o3", "gpt-nope"], { data });
+    expect(stdout).toMatch(/skipped\s+o3\s+no published price, so it cannot be listed/);
+    expect(stdout).toMatch(/skipped\s+gpt-nope\s+not one of this account's models/);
+    expect(stdout).not.toContain("Stopped:");
+    expect(code).toBe(0);
+  });
+
+  it("goes on to the next batch after one with no priced model", async () => {
+    serve({
+      rows: many(30),
+      onTest: (body, i) => (i === 0
+        ? { results: [], skipped: body.models, stoppedEarly: true, stopReason: "unpriced", stopDetail: "these 25 models have no published price" }
+        : {}),
+    });
+    const { code, stdout } = await run(["test", "1", "--yes"], { data });
+    expect(stub.tests().map((b) => b.length)).toEqual([25, 5]);
+    expect(stdout).toMatch(/5 passed · 25 skipped/);
+    expect(code).toBe(0);
+  });
+
   it("says there is nothing to test, and how to reach the renders, when only those are untested", async () => {
     serve({ rows: [row("gpt-5.5", "listed"), row("gpt-image-1", "untested", { surface: "image" })] });
     const { code, stdout } = await run(["test", "1"], { data });

@@ -1234,6 +1234,7 @@ async function cmdTest(args) {
   const timeoutMs = Number(args.timeout) > 0 ? Number(args.timeout) * 1000 : undefined;
   const words = { ok: `${C.green}ok    `, failed: `${C.red}failed`, transient: `${C.yellow}retry ` };
   const tally = { ok: 0, failed: 0, transient: 0, skipped: 0 };
+  const inCatalogue = new Set(rows.map((r) => r.model));
   const queue = [...models];
   let rowsAfter = null;
   let halt = null;
@@ -1256,11 +1257,16 @@ async function cmdTest(args) {
     }
     for (const m of res.skipped || []) {
       tally.skipped++;
-      console.log(`  ${C.dim}skipped ${C.reset} ${m}  ${C.dim}not one of this account's models${C.reset}`);
+      // The one model of this account the server skips is one with no published price
+      // (a closed-price provider such as muse-code), which a pass could never list.
+      const why = inCatalogue.has(m) ? "no published price, so it cannot be listed" : "not one of this account's models";
+      console.log(`  ${C.dim}skipped ${C.reset} ${m}  ${C.dim}${why}${C.reset}`);
     }
     rowsAfter = res.models || rowsAfter;
     // Not reached before the server's budget ran out: never dialled, so send them again.
     queue.unshift(...(res.deferred || []));
+    // A batch with no priced model says nothing about the next one, which is still tested.
+    if (res.stoppedEarly && res.stopReason === "unpriced") continue;
     // A server that dialled nothing and deferred everything would be asked for ever.
     if (res.stoppedEarly || (res.deferred?.length && !res.results?.length)) {
       halt = res;
