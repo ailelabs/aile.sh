@@ -50,7 +50,7 @@ export async function cmdChat(args, ctx) {
   const prompt = await readPrompt(args);
   const model = args.model || args.m;
   if (!model || model === true) {
-    die("Which model?", "Pass --model <provider>/<model>, e.g. --model claude/claude-sonnet-5 — `aile lenders` lists what is served.");
+    die("Which model?", "Pass --model <provider>/<model>, e.g. --model claude/claude-sonnet-5 — `aile sharers` lists what is served.");
   }
   const pay = String(args.pay || "auto");
   if (!["auto", "balance", "own"].includes(pay)) die(`--pay must be auto, balance or own (got "${pay}")`);
@@ -374,7 +374,7 @@ export async function cmdAgents(args, ctx) {
   if (!rows.length) {
     console.log(`
   ${C.dim}No agents are offering tools${query ? ` matching "${query}"` : ""} right now.${C.reset}`);
-    console.log(`  ${C.dim}For an AI model instead:${C.reset} ${C.cyan}aile chat "…" --model <m>${C.reset} ${C.dim}(see${C.reset} ${C.cyan}aile lenders${C.reset}${C.dim})${C.reset}
+    console.log(`  ${C.dim}For an AI model instead:${C.reset} ${C.cyan}aile chat "…" --model <m>${C.reset} ${C.dim}(see${C.reset} ${C.cyan}aile sharers${C.reset}${C.dim})${C.reset}
 `);
     return;
   }

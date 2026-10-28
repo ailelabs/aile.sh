@@ -454,7 +454,7 @@ export class RelayAgent {
       // that stopped offering it is a race, not a misconfiguration.
       this.streams.delete(streamId);
       this.stats.streamsRefused++;
-      this._sendFrame(encodeError(streamId, "node is not lending a local model"));
+      this._sendFrame(encodeError(streamId, "node is not sharing a local model"));
       return;
     }
 

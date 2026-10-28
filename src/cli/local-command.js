@@ -190,10 +190,10 @@ async function showStatus(args) {
 
   if (!config.localEndpoint && !manifest.models.length) {
     if (args.json) return console.log(JSON.stringify({ engine: null, endpoint: null, lending: false, models: [] }, null, 2));
-    console.log(`\n${C.dim}Not lending a self-hosted model.${C.reset}\n`);
+    console.log(`\n${C.dim}Not sharing a self-hosted model.${C.reset}\n`);
     console.log(next([
-      ["aile local setup", "download a model and lend it, in one go"],
-      ["aile local http://127.0.0.1:11434", "lend a model server you already run (Ollama, vLLM, LM Studio, llama.cpp)"],
+      ["aile local setup", "download a model and share it, in one go"],
+      ["aile local http://127.0.0.1:11434", "share a model server you already run (Ollama, vLLM, LM Studio, llama.cpp)"],
     ], { title: "Start" }));
     console.log();
     return;
@@ -238,9 +238,9 @@ async function showStatus(args) {
   console.log(kv([
     ["Engine", `${engineLabel}${config.localEndpoint ? dim(` at ${config.localEndpoint}`) : ""}`],
     ["Status", stateText],
-    ["Lending", lending ? `${C.green}on${C.reset}` : `${C.yellow}off${C.reset} ${dim("· aile local on")}`],
+    ["Sharing", lending ? `${C.green}on${C.reset}` : `${C.yellow}off${C.reset} ${dim("· aile local on")}`],
     ["Context", engine === "external" ? null : `${config.localContext} tokens`],
-    ["Buyers", offered.length ? `${C.cyan}${offered.map((r) => `local/${r.id}`).join(", ")}${C.reset}` : null],
+    ["Callers", offered.length ? `${C.cyan}${offered.map((r) => `local/${r.id}`).join(", ")}${C.reset}` : null],
     ["Privacy", `${C.yellow}not blind${C.reset} ${dim("— requests run here, so this machine reads them")}`],
   ]));
 
@@ -268,7 +268,7 @@ async function showStatus(args) {
   console.log();
   const steps = [];
   if (!rows.length || rows.every((r) => r.priced === false)) steps.push(["aile local models", "models that download and sell"]);
-  if (!lending) steps.push(["aile local on", "offer these to buyers"]);
+  if (!lending) steps.push(["aile local on", "offer these to callers"]);
   else if (now.state !== "up") steps.push(["aile start", "starts the engine and serves"]);
   else steps.push(["aile start", "serve them (Ctrl+C stops)"]);
   if (rows.length) steps.push([`aile local run ${rows[0].id}`, "talk to it here"]);
@@ -497,14 +497,14 @@ function reportPulled({ pre, engine, got, before }) {
     console.log(info(`localModels now names what is offered: ${after.localModels}`, hintText("put it back with `aile config localModels \"\"`")));
   }
   if (adopted.elsewhere) {
-    console.log(warn(`Your self-hosted lending points at ${before.localEndpoint}, not ${ENGINE_NAME[engine]}`, "left as it is"));
-    console.log(`    ${hintText(`To lend this model instead: \`aile local setup --engine ${engine} --model ${got.id}\``)}`);
+    console.log(warn(`Your self-hosted sharing points at ${before.localEndpoint}, not ${ENGINE_NAME[engine]}`, "left as it is"));
+    console.log(`    ${hintText(`To share this model instead: \`aile local setup --engine ${engine} --model ${got.id}\``)}`);
     console.log();
     return;
   }
   console.log();
   const steps = [];
-  if (!after.localEnabled && adopted.advertised) steps.push(["aile local on", "offer it to buyers"]);
+  if (!after.localEnabled && adopted.advertised) steps.push(["aile local on", "offer it to callers"]);
   else if (after.localEnabled && adopted.advertised) steps.push(["aile start", "serve it (restart if already running)"]);
   steps.push([`aile local run ${got.id}`, "talk to it here"]);
   console.log(next(steps));
@@ -558,7 +558,7 @@ async function listCommand(args) {
   ], rows.map((r) => ({
     id: r.id, engine: ENGINE_NAME[r.engine], size: r.sizeBytes ? formatBytes(r.sizeBytes) : "",
     price: priceCell(r.id, live),
-    note: r.missing ? `${C.red}files missing${C.reset}` : r.offered ? `${C.green}lending${C.reset}` : r.engine === "llamacpp" && !r.active ? dim("not loaded") : "",
+    note: r.missing ? `${C.red}files missing${C.reset}` : r.offered ? `${C.green}sharing${C.reset}` : r.engine === "llamacpp" && !r.active ? dim("not loaded") : "",
   }))));
   console.log();
 }
@@ -602,7 +602,7 @@ async function rmCommand(args) {
   }
   console.log(`\n${ok(`Deleted ${name}`)}`);
   if (r2.changed && !r2.value && config.localEnabled) {
-    console.log(info("No model is named for lending now", hintText("the node will offer whatever the engine lists; `aile local --off` stops lending")));
+    console.log(info("No model is named for sharing now", hintText("the node will offer whatever the engine lists; `aile local --off` stops sharing")));
   }
   console.log();
 }
@@ -729,12 +729,12 @@ async function installCommand(args) {
   const which = String(args._[2] || "ollama").toLowerCase().replace(/[^a-z]/g, "");
   if (which === "ollama") {
     const ready = await ensureOllama(args, { offerFallback: false });
-    if (ready) console.log(`\n${next([["aile local setup --engine ollama", "pick a model and lend it"]])}\n`);
+    if (ready) console.log(`\n${next([["aile local setup --engine ollama", "pick a model and share it"]])}\n`);
     return;
   }
   if (which === "llamacpp") {
     const eng = await ensureLlamaCpp(args, detectHardware());
-    console.log(`\n${next([["aile local setup --engine llamacpp", "pick a model and lend it"]])}\n`);
+    console.log(`\n${next([["aile local setup --engine llamacpp", "pick a model and share it"]])}\n`);
     return eng;
   }
   die(`Install what? ollama or llamacpp (got "${args._[2]}")`);
@@ -840,7 +840,7 @@ async function setupWizard(args, { startNode }) {
   }
   const config = loadConfig();
   const hw = detectHardware();
-  console.log(`\n${heading("Self-host a model", "download it, run it here, lend it")}\n`);
+  console.log(`\n${heading("Self-host a model", "download it, run it here, share it")}\n`);
   console.log(kv([
     ["This machine", describeHardware(hw)],
     ["Disk free", (() => { const f = diskFree(localDir(config)); return f === null ? null : `${formatBytes(f)}`; })()],
@@ -946,15 +946,15 @@ async function setupWizard(args, { startNode }) {
   console.log();
   if (elsewhere && !args.yes) {
     if (!interactive || !(await promptConfirm(`Replace your current self-hosted endpoint (${before.localEndpoint})?`, { defaultYes: false }))) {
-      return console.log(`\n${dim(`Kept lending ${before.localEndpoint}. ${got.id} is downloaded and ready.`)}\n`);
+      return console.log(`\n${dim(`Kept sharing ${before.localEndpoint}. ${got.id} is downloaded and ready.`)}\n`);
     }
   }
-  const lend = args.yes || (await promptConfirm(`Lend ${got.id} to buyers?`, { defaultYes: true }));
+  const lend = args.yes || (await promptConfirm(`Share ${got.id} with callers?`, { defaultYes: true }));
   if (!lend) {
     // Recorded for a later `aile local on`, unless lending is live right now:
     // then adding it to the list would offer it anyway.
     if (!before.localEnabled) adoptForLending({ config: before, pre, engine, id: got.id, sellable: true });
-    console.log(info("Not lending it yet", before.localEnabled ? "" : hintText("`aile local on` when you are ready")));
+    console.log(info("Not sharing it yet", before.localEnabled ? "" : hintText("`aile local on` when you are ready")));
     console.log(`\n${next([[`aile local run ${got.id}`, "talk to it here"]])}\n`);
     return;
   }
@@ -969,7 +969,7 @@ async function setupWizard(args, { startNode }) {
   if (!res.ok) die(res.error);
   const after = loadConfig();
   if (seeded.length) console.log(info(`Still offering too: ${seeded.join(", ")}`));
-  console.log(ok(`Lending ${C.cyan}local/${got.id}${C.reset}`, after.localEngine === "llamacpp" ? hintText("llama.cpp starts with `aile start`") : ""));
+  console.log(ok(`Sharing ${C.cyan}local/${got.id}${C.reset}`, after.localEngine === "llamacpp" ? hintText("llama.cpp starts with `aile start`") : ""));
   console.log();
 
   if (lend && startNode && after.renterToken) {
@@ -990,10 +990,10 @@ async function setupWizard(args, { startNode }) {
 
 function onCommand() {
   const config = loadConfig();
-  if (!config.localEndpoint) die("Nothing to lend yet.", "Run `aile local setup` to download a model, or `aile local <url>` for a server you already run.");
+  if (!config.localEndpoint) die("Nothing to share yet.", "Run `aile local setup` to download a model, or `aile local <url>` for a server you already run.");
   const res = updateSettings({ localEnabled: true });
   if (!res.ok) die(res.error);
-  console.log(`\n${C.green}Lending your self-hosted model${C.reset} ${C.dim}${config.localEndpoint}${C.reset}\n`);
+  console.log(`\n${C.green}Sharing your self-hosted model${C.reset} ${C.dim}${config.localEndpoint}${C.reset}\n`);
   for (const l of privacyLines()) console.log(l);
   console.log(`\nStart serving: ${C.cyan}aile start${C.reset}\n`);
 }
@@ -1001,7 +1001,7 @@ function onCommand() {
 function legacyOff() {
   const res = updateSettings({ localEnabled: false });
   if (!res.ok) die(res.error);
-  console.log(`\n${C.green}Self-hosted lending is off.${C.reset} ${C.dim}The endpoint is remembered.${C.reset}\n`);
+  console.log(`\n${C.green}Self-hosted sharing is off.${C.reset} ${C.dim}The endpoint is remembered.${C.reset}\n`);
 }
 
 /**
@@ -1021,7 +1021,7 @@ async function legacyEndpoint(args, endpoint) {
   const res = updateSettings({ localEndpoint: endpoint, localEnabled: true, localEngine: "external" });
   if (!res.ok) die(res.error);
 
-  console.log(`\n${C.green}Lending your self-hosted model${C.reset} ${C.dim}${endpoint}${C.reset}`);
+  console.log(`\n${C.green}Sharing your self-hosted model${C.reset} ${C.dim}${endpoint}${C.reset}`);
 
   const models = await discoverLocalModels(res.value);
   const now = await localStatus(res.value);
@@ -1031,7 +1031,7 @@ async function legacyEndpoint(args, endpoint) {
     console.log(`${C.yellow}Nothing answers there yet${C.reset} ${C.dim}(${now.reason}). ${models.length ? models.join(", ") : "Its models"} will be listed after it answers a test probe.${C.reset}`);
   } else if (models.length) {
     console.log(`${C.dim}Advertising: ${models.join(", ")}${C.reset}`);
-    console.log(`${C.dim}Buyers send: ${C.reset}${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
+    console.log(`${C.dim}Callers send: ${C.reset}${C.cyan}${models.map((m) => `local/${m}`).join(", ")}${C.reset}`);
   } else {
     console.log(`${C.yellow}Could not list models${C.reset} ${C.dim}at ${target.host}:${target.port}.${C.reset}`);
     console.log(`${C.dim}Start it, or name them: ${C.reset}${C.cyan}aile config localModels llama3,mistral${C.reset}`);

@@ -1,7 +1,7 @@
 # aile.sh
 
-Lend spare AI capacity from a machine you own and get paid per request. The same
-client also lets you pick which lender serves your own requests.
+Share spare AI capacity from a machine you own and get paid per request. The same
+client also lets you pick which sharer serves your own requests.
 
 **Full documentation: [aile.sh/docs](https://aile.sh/docs)**
 
@@ -34,7 +34,7 @@ aile setup --remove             # put every file back exactly as it was
 aile doctor                     # check the key, the server and each tool
 ```
 
-## Start lending
+## Start sharing
 
 ```bash
 aile login       # sign in through your browser
@@ -56,7 +56,7 @@ aile login --token <token>    # for scripts, images, systemd units
 
 A pasted token is checked against the server before anything reaches disk, so a
 truncated copy fails in front of you. See
-[Install the CLI](https://aile.sh/docs/lend/install) for the headless path in
+[Install the CLI](https://aile.sh/docs/share/install) for the headless path in
 full.
 
 ## Three kinds of capacity
@@ -72,7 +72,7 @@ aile capacity                           # all three, grouped by kind
 A **subscription** stops at its monthly ceiling. An **API key** has no ceiling:
 it bills your own account per token, so a busy week arrives as an invoice. A
 **local model** runs on your hardware, which means your machine reads those
-prompts; buyers ask for it by name (`local/<model>`) and never receive it in
+prompts; callers ask for it by name (`local/<model>`) and never receive it in
 place of the other two.
 
 Keys are checked with the provider before upload, so a bad paste fails here
@@ -80,16 +80,16 @@ rather than becoming capacity that fails on every request. Nothing signs a key,
 so those accounts read `unverified` for as long as they exist. `aile accounts`
 says so on the line beneath.
 
-[Connect an account →](https://aile.sh/docs/lend/connect)
+[Connect an account →](https://aile.sh/docs/share/connect)
 
-## Lend your own GPU
+## Share your own GPU
 
 ```bash
-aile local setup                        # pick a model that fits, download it, test it, lend it
+aile local setup                        # pick a model that fits, download it, test it, share it
 aile local models                       # what downloads and sells, and what fits here
 aile local pull qwen/qwen3-8b           # one model; any Ollama tag or hf.co/<user>/<repo> too
 aile local run qwen/qwen3-8b "hello"    # talk to it
-aile local http://127.0.0.1:1234        # or lend a server you already run
+aile local http://127.0.0.1:1234        # or share a server you already run
 ```
 
 Ollama runs the model, installed for you if it is missing (with your
@@ -98,7 +98,7 @@ its own folder instead and runs it only while `aile start` runs. A model sells
 only under a name with a published list price, so the models aile offers are
 saved under that name, and anything else is marked as not selling.
 
-[Self-hosted models →](https://aile.sh/docs/lend/local)
+[Self-hosted models →](https://aile.sh/docs/share/local)
 
 ## Getting paid
 
@@ -110,26 +110,26 @@ aile stats     # what each of your machines has served and earned
 One account, one wallet, created for you at sign-in. Earnings arrive as USDC on
 Solana. The private key lives in the wallet provider's secure enclave, outside
 this program and off this machine. (The optional own wallet under
-[Buying](#buying) is separate, and only exists if you create it.)
+[Calling](#calling) is separate, and only exists if you create it.)
 
 You name a withdrawal's destination at the moment you make it, on the withdraw
 page, and it is stored nowhere. No payout address sits on file, so nobody who
 reaches your account can re-point your earnings in advance.
 
-[Getting paid →](https://aile.sh/docs/lend/payouts)
+[Getting paid →](https://aile.sh/docs/share/payouts)
 
-## Buying
+## Calling
 
 ```bash
-aile lenders                  # who is lending now, cheapest first
-aile lenders --max-price 8    # nobody above $8 per million tokens
-aile lenders --verified       # provider-attested accounts only
+aile sharers                  # who is sharing now, cheapest first
+aile sharers --max-price 8    # nobody above $8 per million tokens
+aile sharers --verified       # provider-attested accounts only
 aile price gpt-5.2            # what one request would cost, at each rate
-aile spend                    # what each lender has charged you
+aile spend                    # what each sharer has charged you
 ```
 
 Filters combine, and each one narrows: `--verified --max-price 8` is both. An
-unpinned request goes to the cheapest lender who meets your filters, with ties
+unpinned request goes to the cheapest sharer who meets your filters, with ties
 broken by whoever is least busy. That is also the listing's default order, so
 the top row is where your next request lands.
 
@@ -138,9 +138,10 @@ into one you can make per request.
 
 A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
 `local/llama3`), or a bare id with `x-aile-provider`. A bare id alone is a 400.
-`aile lenders --model` and `aile price` still take bare ids.
+`aile sharers --model` and `aile price` still take bare ids.
+`aile lenders` is the old name for `aile sharers` and still works.
 
-[Choosing a lender →](https://aile.sh/docs/buy/routing)
+[Choosing a sharer →](https://aile.sh/docs/buy/routing)
 
 ### From the terminal
 
@@ -164,7 +165,7 @@ aile agents use <listing> <tool> --task "…"         # call one, paid from your
 aile agents use <listing> <tool> --task "…" --pay own   # …or from your own wallet
 ```
 
-`aile mcp` is the other direction: it lends *your* tools.
+`aile mcp` is the other direction: it shares *your* tools.
 
 ### Paying per call from your own wallet
 
@@ -190,7 +191,7 @@ Base, is named as such and not paid.
 ## What your machine can see
 
 ```
-BUYER            aile.sh                  YOUR MACHINE            PROVIDER
+CALLER           aile.sh                  YOUR MACHINE            PROVIDER
   |                 |                          |                     |
   |-- request ----->|                          |                     |
   |                 |-- opens TLS to provider --+-------------------->|
@@ -274,8 +275,8 @@ rather than this client:
 | | |
 |---|---|
 | [Quickstart](https://aile.sh/docs/quickstart) | Sign up, install, first request |
-| [Lending](https://aile.sh/docs/lend) | Connect accounts, set rates, run the node |
-| [Buying](https://aile.sh/docs/buy) | Keys, models, routing, streaming, errors |
+| [Sharing](https://aile.sh/docs/share) | Connect accounts, set rates, run the node |
+| [Calling](https://aile.sh/docs/buy) | Keys, models, routing, streaming, errors |
 | [Pricing](https://aile.sh/docs/pricing) | Fees, discounts, who pays what |
 | [Troubleshooting](https://aile.sh/docs/troubleshooting) | When something is wrong |
 

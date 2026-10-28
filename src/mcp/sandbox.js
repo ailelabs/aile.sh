@@ -125,7 +125,7 @@ export function detectRuntime({ runtimes = RUNTIMES, run = spawnSync } = {}) {
       state: "stopped",
       message:
         `a container runtime is installed but not running${lastMessage ? ` (${lastMessage})` : ""} — ` +
-        `start Docker Desktop (or the docker service) before lending MCP capacity`,
+        `start Docker Desktop (or the docker service) before sharing MCP capacity`,
       // The one-line form for a running node's log and `aile start`'s header;
       // the runtime's own error text stays in `message`, for `aile mcp`.
       short: "Docker isn't running · start Docker Desktop",

@@ -2,7 +2,7 @@
 
 This client runs unattended on machines we do not control, holds an account
 token, and updates itself. Treat a flaw in it as a flaw that reaches every
-lender at once.
+sharer at once.
 
 ## Reporting a vulnerability
 
@@ -40,7 +40,7 @@ A report we can reproduce gets fixed faster than one we have to guess at:
 - A path that lets a malicious relay response run code on the node.
 - A flaw in the update mechanism that installs something other than the
   published `aile.sh` package.
-- Anything that lets one lender read another's traffic, earnings, or accounts.
+- Anything that lets one sharer read another's traffic, earnings, or accounts.
 
 ## Out of scope
 

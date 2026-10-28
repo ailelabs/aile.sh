@@ -70,6 +70,12 @@ a patch bump fixes something.
 
 ### Changed
 
+- Lending is now called sharing, and a lender is a sharer. `aile sharers`
+  is the new name of `aile lenders`; the old name still works. `aile price` and
+  `aile sharers` take `--sharer` beside `--lender`, and `aile mcp answer` too.
+  Help, prompts and messages use the new words. What the client sends to the
+  server does not change, and the node sets `AILE_MCP_SHARER` beside
+  `AILE_MCP_LENDER`.
 - A model lists after it passes a test, not after a buyer's request served it.
   `aile check-key` (`retest` and `recheck` still work) only checks the credential.
 - The `aile lenders` and `aile start` wording for a self-hosted model says it is

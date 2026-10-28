@@ -286,7 +286,7 @@ describe("saying what it is", () => {
     const srv = stubServer();
     try {
       const res = await run(["price", "claude-opus-5"], { data: signedInData(srv.url) });
-      const heading = res.stdout.split("\n").find((l) => l.includes("claude-opus-5") && l.includes("lender"));
+      const heading = res.stdout.split("\n").find((l) => l.includes("claude-opus-5") && l.includes("sharer"));
       expect(heading).toMatch(/estimate/i);
       expect(heading).toMatch(/1,500 in/);
       expect(heading).toMatch(/4,096 out/);
@@ -336,7 +336,7 @@ describe("nothing to price", () => {
       const res = await run(["price", "claude-opus-5"], { data: signedInData(srv.url) });
       expect(res.code).toBe(0);
       expect(res.stdout).toMatch(/nobody online is serving claude-opus-5/i);
-      expect(res.stdout).toMatch(/lending other models/i);
+      expect(res.stdout).toMatch(/sharing other models/i);
     } finally { srv.stop(); }
   });
 
@@ -345,8 +345,8 @@ describe("nothing to price", () => {
     try {
       const res = await run(["price", "claude-opus-5"], { data: signedInData(srv.url) });
       expect(res.code).toBe(0);
-      expect(res.stdout).toMatch(/nothing is lending right now/i);
-      expect(res.stdout).not.toMatch(/lending other models/i);
+      expect(res.stdout).toMatch(/nothing is sharing right now/i);
+      expect(res.stdout).not.toMatch(/sharing other models/i);
     } finally { srv.stop(); }
   });
 
@@ -396,6 +396,16 @@ describe("pinning one seller", () => {
     const srv = stubServer();
     try {
       await run(["price", "claude-opus-5", "--lender", "Labcdef0123456789"], {
+        data: signedInData(srv.url),
+      });
+      expect(srv.query()).toEqual({ model: "claude-opus-5", handle: "Labcdef0123456789" });
+    } finally { srv.stop(); }
+  });
+
+  it("passes --sharer through as the same handle filter", async () => {
+    const srv = stubServer();
+    try {
+      await run(["price", "claude-opus-5", "--sharer", "Labcdef0123456789"], {
         data: signedInData(srv.url),
       });
       expect(srv.query()).toEqual({ model: "claude-opus-5", handle: "Labcdef0123456789" });

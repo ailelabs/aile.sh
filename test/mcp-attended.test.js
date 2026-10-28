@@ -110,6 +110,7 @@ describe("buildChildEnv", () => {
       expect("ANTHROPIC_API_KEY" in env).toBe(false);
       expect(env.AILE_MCP_JOB_ID).toBe("mcpj_test");
       expect(env.AILE_MCP_LENDER).toBe("mcpl_test");
+      expect(env.AILE_MCP_SHARER).toBe("mcpl_test");
       expect(env.AILE_MCP_WORKDIR).toBe(workdir);
     });
   });

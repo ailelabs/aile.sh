@@ -161,7 +161,8 @@ describe("the command table", () => {
   });
 
   it("finds a command by an alias", () => {
-    expect(findCommand("market").name).toBe("lenders");
+    expect(findCommand("market").name).toBe("sharers");
+    expect(findCommand("lenders").name).toBe("sharers"); // the old name
     expect(findCommand("quote").name).toBe("price");
     expect(findCommand("payout").name).toBe("wallet");
     expect(findCommand("nope")).toBeFalsy();
@@ -205,14 +206,16 @@ describe("overview and per-command help", () => {
   it("keeps the overview short enough to read", () => {
     const lines = plain(overview()).split("\n");
     expect(lines.length).toBeLessThan(60);
-    for (const c of ["aile setup", "aile lenders", "aile login", "aile connect", "aile start"]) {
+    for (const c of ["aile setup", "aile sharers", "aile login", "aile connect", "aile start"]) {
       expect(lines.join("\n")).toContain(c);
     }
+    expect(lines.join("\n")).not.toContain("aile lenders"); // the old name is not advertised
   });
 
   it("puts a command's detail in its own help", () => {
-    const out = plain(commandHelp(findCommand("lenders")));
-    expect(out).toContain("aile lenders");
+    const out = plain(commandHelp(findCommand("sharers")));
+    expect(out).toContain("aile sharers");
+    expect(out).toContain("old name: aile lenders");
     expect(out).toContain("Filters combine");
   });
 });
@@ -222,13 +225,15 @@ describe("overview and per-command help", () => {
 // ---------------------------------------------------------------------------
 
 describe("help runs nothing", () => {
-  it("`aile lenders --help` never reaches the server", async () => {
+  it("`aile sharers --help`, and the old `aile lenders --help`, never reach the server", async () => {
     const srv = countingServer();
     try {
       const data = scratch({ serverUrl: srv.url, renterToken: `ail_${"a".repeat(48)}`, allowInsecure: true });
-      const res = await run(["lenders", "--help"], { data });
-      expect(res.code).toBe(0);
-      expect(res.stdout).toContain("aile lenders");
+      for (const name of ["sharers", "lenders"]) {
+        const res = await run([name, "--help"], { data });
+        expect(res.code).toBe(0);
+        expect(res.stdout).toContain("aile sharers");
+      }
       expect(srv.hits).toEqual([]);
     } finally { srv.stop(); }
   });
@@ -251,7 +256,7 @@ describe("help runs nothing", () => {
   it("`aile help <nonsense>` is an error, with a suggestion when there is one", async () => {
     const res = await run(["help", "lendrs"], { data: scratch() });
     expect(res.code).toBe(1);
-    expect(res.all).toContain("aile lenders");
+    expect(res.all).toContain("aile sharers");
   });
 });
 
@@ -360,7 +365,7 @@ describe("bare `aile` on a signed-in machine", () => {
     const srv = accountServer({ accounts: [NODELESS(1), NODELESS(2)] });
     try {
       const glance = await run([], { data: lenderData(srv.url) });
-      expect(glance.stdout).toMatch(/Lending\s+2 accounts \(nodeless\)/);
+      expect(glance.stdout).toMatch(/Sharing\s+2 accounts \(nodeless\)/);
       expect(glance.stdout).not.toContain("aile start");
       // Served is counted per machine, and a nodeless serve passes through none:
       // "0 served" beside real earnings would be wrong, so it is left out.
@@ -375,7 +380,7 @@ describe("bare `aile` on a signed-in machine", () => {
     const srv = accountServer({ accounts: [NODELESS(1), IDLE] });
     try {
       const res = await run([], { data: lenderData(srv.url) });
-      expect(res.stdout).toMatch(/Lending\s+2 accounts \(1 nodeless\) . 1,216 served/);
+      expect(res.stdout).toMatch(/Sharing\s+2 accounts \(1 nodeless\) . 1,216 served/);
       expect(res.stdout).toMatch(/aile start\s+serve your idle account from this machine/);
     } finally { srv.stop(); }
   });

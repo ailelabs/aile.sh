@@ -61,13 +61,13 @@ import { printUpdateNotice, refreshCache, runSelfUpdate, isNewer, REFRESH_ARGV }
 // reads "logLevel" as the flag's value instead of as the key to reset.
 const BOOLEAN_FLAGS = new Set([
   "insecure", "reset", "path", "help", "json", "paste", "browser", "off", "yes",
-  // `aile lenders --verified` is a filter that takes no value. Without it here,
-  // `aile lenders --verified --model x` reads "--model" as the value of
+  // `aile sharers --verified` is a filter that takes no value. Without it here,
+  // `aile sharers --verified --model x` reads "--model" as the value of
   // `--verified` and the model filter silently disappears — a listing the caller
   // believes is filtered by model and is not.
   //
   // EVERY VALUELESS FILTER BELONGS HERE, and the failure is always the same
-  // shape: the flag swallows the next one. `aile lenders --free --sort served`
+  // shape: the flag swallows the next one. `aile sharers --free --sort served`
   // would set `free: "--sort"` and drop the order entirely. A filter that
   // silently disappears is worse than one that errors, because the listing still
   // prints and looks filtered.
@@ -815,7 +815,7 @@ async function cmdAccounts(args) {
     // lending. Saying only the first half reads as "you are lending nothing",
     // which is wrong in the direction that makes a lender stop.
     if (config.localEnabled && config.localEndpoint) {
-      console.log(`\n${C.dim}A self-hosted model is lent from this machine: ${C.reset}${C.cyan}${config.localEndpoint}${C.reset}`);
+      console.log(`\n${C.dim}A self-hosted model is shared from this machine: ${C.reset}${C.cyan}${config.localEndpoint}${C.reset}`);
       console.log(`${C.dim}It is not listed here because it is not an account — see ${C.reset}${C.cyan}aile capacity${C.reset}`);
     }
     console.log();
@@ -920,10 +920,10 @@ async function cmdCapacity(args) {
   }
 
   if (!accounts.length && !localConfigured) {
-    console.log(`\n${C.dim}This machine is not lending anything yet.${C.reset}\n`);
+    console.log(`\n${C.dim}This machine is not sharing anything yet.${C.reset}\n`);
     console.log(`  Connect an account:   ${C.cyan}aile connect${C.reset}`);
-    console.log(`  Lend a local model:   ${C.cyan}aile local http://127.0.0.1:11434${C.reset}`);
-    console.log(`  ${C.dim}Buyers reach it as ${C.reset}${C.cyan}local/<model>${C.reset}\n`);
+    console.log(`  Share a local model:  ${C.cyan}aile local http://127.0.0.1:11434${C.reset}`);
+    console.log(`  ${C.dim}Callers reach it as ${C.reset}${C.cyan}local/<model>${C.reset}\n`);
     return;
   }
 
@@ -934,7 +934,7 @@ async function cmdCapacity(args) {
     if (a.label && a.email) console.log(`        ${C.dim}${a.email}${C.reset}`);
   };
 
-  console.log(`\n${C.bold}What this machine lends${C.reset}`);
+  console.log(`\n${C.bold}What this machine shares${C.reset}`);
 
   if (subscriptions.length) {
     console.log(`\n  ${C.bold}Subscriptions${C.reset} ${C.dim}(${subscriptions.length})${C.reset}`);
@@ -979,7 +979,7 @@ async function cmdCapacity(args) {
   if (accounts.length) {
     console.log(`${C.dim}Numbers match ${C.reset}${C.cyan}aile accounts${C.reset}${C.dim} · remove one: ${C.reset}${C.cyan}aile disconnect 1${C.reset}`);
   } else if (localConfigured) {
-    console.log(`${C.dim}Stop lending it: ${C.reset}${C.cyan}aile local --off${C.reset}`);
+    console.log(`${C.dim}Stop sharing it: ${C.reset}${C.cyan}aile local --off${C.reset}`);
   }
   console.log();
 }
@@ -1750,9 +1750,9 @@ function statusSteps(s, { home }) {
   else if (notYet.length) steps.push([`aile setup ${notYet.map((t) => t.id).join(" ")}`, `also set up ${notYet.map((t) => t.label).join(", ")}`]);
   const shortcut = setUp.map((t) => manifest.tools[t.id]?.shortcut?.name).find(Boolean);
   if (shortcut && steps.length === 0) steps.push([shortcut, "start coding through aile"]);
-  if (me && !me.renter.donor && !s.accounts.length) steps.push(["aile connect", "connect an AI account to lend"]);
+  if (me && !me.renter.donor && !s.accounts.length) steps.push(["aile connect", "connect an AI account to share"]);
   else if (me && s.idle && !s.running) steps.push(["aile start", `serve ${s.idle === 1 ? "your idle account" : `${s.idle} idle accounts`} from this machine`]);
-  if (!isLinked() && !steps.length) steps.push(["aile login", "sign in to lend and get paid"]);
+  if (!isLinked() && !steps.length) steps.push(["aile login", "sign in to share and get paid"]);
   if (!home) steps.push(["aile help", "every command"]);
   return steps.slice(0, 3);
 }
@@ -1803,9 +1803,9 @@ function printGlance(s) {
     : [`${C.dim}not set up${C.reset}`, found.length ? `found ${found.join(", ")}` : null].filter(Boolean).join(dot)]);
 
   if (!isLinked()) {
-    rows.push(["Lending", `${C.dim}not signed in${C.reset}`]);
+    rows.push(["Sharing", `${C.dim}not signed in${C.reset}`]);
   } else if (!me) {
-    rows.push(["Lending", `${C.yellow}${explainError(meError, server)[0]}${C.reset}`]);
+    rows.push(["Sharing", `${C.yellow}${explainError(meError, server)[0]}${C.reset}`]);
   } else {
     const n = s.accounts.length;
     const parts = [n
@@ -1818,7 +1818,7 @@ function printGlance(s) {
     // served" beside real earnings. Shown only where a machine can serve.
     const served = (me.nodes || []).reduce((a, x) => a + (x.requests || 0), 0);
     if (n && s.nodeless < n) parts.push(`${count(served)} served`);
-    rows.push(["Lending", parts.join(dot)]);
+    rows.push(["Sharing", parts.join(dot)]);
   }
 
   const local = [];
@@ -2077,7 +2077,7 @@ async function cmdStart(args) {
       : ["MCP", `${C.yellow}${mcp.declared.length} not served${C.reset} ${C.dim}· ${mcp.runtime.short ?? mcp.runtime.message}${C.reset}`],
     config.autoReconnect === false ? ["Reconnect", `${C.yellow}off${C.reset}`] : null,
   ];
-  console.log(`\n${heading("aile.sh", "lending from this machine · Ctrl+C stops")}\n`);
+  console.log(`\n${heading("aile.sh", "sharing from this machine · Ctrl+C stops")}\n`);
   console.log(kv(rows.filter(Boolean)));
   console.log(`\n${C.dim}${C.reset}${C.cyan}aile status${C.reset}${C.dim} in another terminal shows what it is serving.${C.reset}\n`);
 
@@ -2213,7 +2213,7 @@ async function cmdDonate(args, { quiet = false } = {}) {
   console.log(`    ${C.green}·${C.reset} Requests stay unreadable here — the same blind relay as everyone else.`);
   console.log(`    ${C.green}·${C.reset} You can add AI accounts and a self-hosted model, exactly as a signed-in machine can.`);
   console.log(`    ${C.yellow}·${C.reset} ${C.bold}You are not paid.${C.reset} Nothing accrues, and nothing can be claimed later.`);
-  console.log(`    ${C.yellow}·${C.reset} Buyers still pay the normal rate. You are donating the earnings, not the price.\n`);
+  console.log(`    ${C.yellow}·${C.reset} Callers still pay the normal rate. You are donating the earnings, not the price.\n`);
   console.log(`  ${C.dim}Want to be paid for this instead? ${C.reset}${C.cyan}aile login${C.reset}${C.dim} — it takes a minute and an email.${C.reset}\n`);
 
   if (!args.yes) {
@@ -2465,14 +2465,14 @@ async function cmdWallet(args) {
  * answers their requests, and seeing afterwards what that cost.
  *
  * NOTHING HERE IS AN OPINION, AND THAT IS THE DESIGN. A star rating was built
- * and taken out. What a buyer sees instead is counted: `aile lenders` prints how
+ * and taken out. What a buyer sees instead is counted: `aile sharers` prints how
  * many requests each machine has relayed, and `aile spend` prints what each
  * lender has charged THIS account. Neither can be manufactured — a lender cannot
  * move the first without doing the work, and a buyer cannot move either at all —
  * so there is nothing to brigade, nothing to moderate, and no first-review
  * problem where a new lender is unrankable until somebody guesses.
  *
- * WHY A LENDER IS A HANDLE AND NOT A NODE ID. `aile lenders` prints a machine id
+ * WHY A LENDER IS A HANDLE AND NOT A NODE ID. `aile sharers` prints a machine id
  * (that is what `x-aile-node` pins) and a handle beside it. They are not
  * interchangeable: a node id is minted on the lender's own machine and can be
  * remade at will, so it names a BOX. The handle is derived from the account,
@@ -2512,17 +2512,17 @@ function providerChips(providers = []) {
 /**
  * Who is lending right now.
  *
- *   aile lenders                          everyone online
- *   aile lenders --model claude-opus-5    …with what each would charge for it
- *   aile lenders --max-price 8            …under $8 per million tokens, both ways
- *   aile lenders --verified               …attested subscriptions only
- *   aile lenders --provider codex         …offering that subscription
- *   aile lenders --seller L4f1a…          …one seller, whichever machine is free
- *   aile lenders --node a3f19c2…          …one specific machine
- *   aile lenders --min-served 100         …with a track record of at least 100
- *   aile lenders --free                   …with capacity free this second
- *   aile lenders --sort served            …ordered for reading, not for routing
- *   aile lenders --json                   the server's answer, for a script
+ *   aile sharers                          everyone online
+ *   aile sharers --model claude-opus-5    …with what each would charge for it
+ *   aile sharers --max-price 8            …under $8 per million tokens, both ways
+ *   aile sharers --verified               …attested subscriptions only
+ *   aile sharers --provider codex         …offering that subscription
+ *   aile sharers --seller L4f1a…          …one seller, whichever machine is free
+ *   aile sharers --node a3f19c2…          …one specific machine
+ *   aile sharers --min-served 100         …with a track record of at least 100
+ *   aile sharers --free                   …with capacity free this second
+ *   aile sharers --sort served            …ordered for reading, not for routing
+ *   aile sharers --json                   the server's answer, for a script
  *
  * EVERY FLAG IS A QUERY PARAMETER AND NOTHING IS FILTERED LOCALLY. The server
  * applies them, echoes back what it applied, and this prints the result. A local
@@ -2574,13 +2574,13 @@ async function cmdLenders(args) {
 
   let res;
   try {
-    res = await withSpinner("Asking who is lending…", api.market({
+    res = await withSpinner("Asking who is sharing…", api.market({
       serverUrl: server, token: config.renterToken, insecure,
       model: args.model || null,
       maxPrice: args["max-price"] ?? args.maxPrice ?? null,
       verified: Boolean(args.verified),
       provider: args.provider || null,
-      handle: args.seller || args.lender || null,
+      handle: args.seller || args.sharer || args.lender || null,
       nodeId: args.node || args["node-id"] || null,
       minServed: args["min-served"] ?? args.minServed ?? null,
       freeOnly: Boolean(args.free || args["free-only"]),
@@ -2613,11 +2613,11 @@ async function cmdLenders(args) {
      */
     const online = res.online || 0;
     if (!online) {
-      console.log(`\n  ${C.dim}Nobody is lending right now.${C.reset}`);
+      console.log(`\n  ${C.dim}Nobody is sharing right now.${C.reset}`);
       console.log(`  ${C.dim}Requests will fail until a machine connects.${C.reset}\n`);
       return;
     }
-    console.log(`\n  ${C.yellow}${count(online)} machine${online === 1 ? " is" : "s are"} lending, but none match these filters.${C.reset}\n`);
+    console.log(`\n  ${C.yellow}${count(online)} machine${online === 1 ? " is" : "s are"} sharing, but none match these filters.${C.reset}\n`);
     /**
      * ONE LINE PER FILTER THAT IS ACTUALLY ON, naming the flag to drop.
      *
@@ -2628,7 +2628,7 @@ async function cmdLenders(args) {
      * and not what was typed.
      */
     const f = res.filters || {};
-    if (f.nodeId) console.log(`  ${C.dim}Drop ${C.reset}${C.cyan}--node ${f.nodeId}${C.reset}${C.dim} — that machine is not online, or not lending.${C.reset}`);
+    if (f.nodeId) console.log(`  ${C.dim}Drop ${C.reset}${C.cyan}--node ${f.nodeId}${C.reset}${C.dim} — that machine is not online, or not sharing.${C.reset}`);
     if (f.handle) console.log(`  ${C.dim}Drop ${C.reset}${C.cyan}--seller ${f.handle}${C.reset}${C.dim} — none of their machines are online.${C.reset}`);
     if (f.maxUsdPerMtok !== null && f.maxUsdPerMtok !== undefined) {
       console.log(`  ${C.dim}Raise the ceiling: ${C.reset}${C.cyan}--max-price ${Number(f.maxUsdPerMtok) * 2}${C.reset}`);
@@ -2643,7 +2643,7 @@ async function cmdLenders(args) {
     const anyFilter = f.maxUsdPerMtok || f.verified || f.provider || f.model
       || f.handle || f.nodeId || f.minServed || f.freeOnly;
     if (!anyFilter) {
-      console.log(`  ${C.dim}None is listed: a model lists after a test, and a lender needs a payout wallet.${C.reset}`);
+      console.log(`  ${C.dim}None is listed: a model lists after a test, and a sharer needs a payout wallet.${C.reset}`);
     }
     console.log();
     return;
@@ -2661,7 +2661,7 @@ async function cmdLenders(args) {
   const ordered = res.filters?.sort && res.filters.sort !== "price"
     ? `sorted by ${res.filters.sort} — for reading; requests still route cheapest-first`
     : "listed in the same order your request is routed in";
-  console.log(`\n${C.bold}Lenders${C.reset} ${C.dim}${count(res.online || lenders.length)} online · ${ordered}${C.reset}\n`);
+  console.log(`\n${C.bold}Sharers${C.reset} ${C.dim}${count(res.online || lenders.length)} online · ${ordered}${C.reset}\n`);
 
   // Column widths from the data, so a long provider list does not shear the table.
   const rows = lenders.map((l, i) => ({
@@ -2685,7 +2685,7 @@ async function cmdLenders(args) {
 
   const w = (k, head) => Math.max(width(head), ...rows.map((r) => width(r[k])));
   const H = {
-    machine: "MACHINE", handle: "LENDER", providers: "PROVIDERS",
+    machine: "MACHINE", handle: "SHARER", providers: "PROVIDERS",
     price: "PRICE in/out", served: "SERVED",
   };
   const wm = w("machine", H.machine), wh = w("handle", H.handle), wp = w("providers", H.providers);
@@ -2702,7 +2702,7 @@ async function cmdLenders(args) {
     console.log(`  ${C.yellow}~${C.reset}${C.dim} no published rate for that model — estimated from its family${C.reset}`);
   }
   if (!priced) {
-    console.log(`  ${C.dim}Prices need a model: ${C.reset}${C.cyan}aile lenders --model claude-opus-5${C.reset}`);
+    console.log(`  ${C.dim}Prices need a model: ${C.reset}${C.cyan}aile sharers --model claude-opus-5${C.reset}`);
   }
 
   /**
@@ -2731,7 +2731,7 @@ async function cmdLenders(args) {
   console.log(`  ${C.dim}Self-hosted is ${C.reset}${C.cyan}local/<model>${C.reset}${C.dim}. A bare id is a 400 unless ${C.reset}${C.cyan}x-aile-provider${C.reset}${C.dim} names it.${C.reset}`);
   console.log(`  ${C.dim}Send these headers with your ${C.reset}${C.cyan}/v1${C.reset}${C.dim} request:${C.reset}`);
   console.log(`    ${C.cyan}x-aile-node:${C.reset} ${lenders[0]?.nodeId || "<machine>"}   ${C.dim}serve only from that machine${C.reset}`);
-  console.log(`    ${C.cyan}x-aile-lender:${C.reset} ${lenders[0]?.handle || "<seller>"}   ${C.dim}that seller, whichever machine of theirs is free${C.reset}`);
+  console.log(`    ${C.cyan}x-aile-sharer:${C.reset} ${lenders[0]?.handle || "<seller>"}   ${C.dim}that seller, whichever machine of theirs is free${C.reset}`);
   console.log(`    ${C.cyan}x-aile-max-price:${C.reset} 8              ${C.dim}refuse anything above $8 per million tokens${C.reset}`);
   console.log(`    ${C.cyan}x-aile-verified:${C.reset} 1               ${C.dim}attested subscriptions only${C.reset}`);
   console.log(`    ${C.cyan}x-aile-provider:${C.reset} codex           ${C.dim}names the provider; the model goes upstream as its own id${C.reset}`);
@@ -2756,7 +2756,7 @@ async function cmdLenders(args) {
  *   aile price gpt-5.2 --json                   the same, for a script
  *
  * ============================================================================
- * `aile lenders` PRINTS A RATE. THIS PRINTS A BILL, AND THEY ARE NOT THE SAME
+ * `aile sharers` PRINTS A RATE. THIS PRINTS A BILL, AND THEY ARE NOT THE SAME
  * THING TO READ. "$15.00 per million output tokens" is a number nobody can
  * convert in their head into what the next request costs; "$0.000138" is the
  * question actually being asked.
@@ -2836,13 +2836,13 @@ async function cmdPrice(args) {
 
   const model = args._[1] || args.model;
   if (!model) {
-    // A PRICE ONLY EXISTS FOR A MODEL, and this is the same rule `aile lenders`
+    // A PRICE ONLY EXISTS FOR A MODEL, and this is the same rule `aile sharers`
     // applies to its price column. Naming an example beats naming the flag:
-    // somebody who has not run `aile lenders` yet does not know what a model
+    // somebody who has not run `aile sharers` yet does not know what a model
     // string looks like on this network.
     die(
       "Which model? A price only exists for one.",
-      "Try `aile price claude-opus-5`, or `aile lenders` to see what is being served.",
+      "Try `aile price claude-opus-5`, or `aile sharers` to see what is being served.",
     );
   }
 
@@ -2874,10 +2874,10 @@ async function cmdPrice(args) {
 
   let res;
   try {
-    res = await withSpinner("Pricing it at every lender…", api.market({
+    res = await withSpinner("Pricing it at every sharer…", api.market({
       serverUrl: server, token: config.renterToken, insecure,
       model: String(model),
-      handle: args.lender || args.seller || null,
+      handle: args.sharer || args.lender || args.seller || null,
       nodeId: args.node || null,
     }));
   } catch (e) {
@@ -2911,8 +2911,8 @@ async function cmdPrice(args) {
   if (!rows.length) {
     const online = res.online || 0;
     console.log(`\n  ${C.yellow}Nobody online is serving ${model}.${C.reset}`);
-    if (online) console.log(`  ${C.dim}${count(online)} machine${online === 1 ? " is" : "s are"} lending other models — see ${C.reset}${C.cyan}aile lenders${C.reset}${C.dim}.${C.reset}\n`);
-    else console.log(`  ${C.dim}Nothing is lending right now.${C.reset}\n`);
+    if (online) console.log(`  ${C.dim}${count(online)} machine${online === 1 ? " is" : "s are"} sharing other models — see ${C.reset}${C.cyan}aile sharers${C.reset}${C.dim}.${C.reset}\n`);
+    else console.log(`  ${C.dim}Nothing is sharing right now.${C.reset}\n`);
     return;
   }
 
@@ -2921,7 +2921,7 @@ async function cmdPrice(args) {
   rows.sort((a, b) => a.micros - b.micros);
 
   const from = source === "flag" ? "--max-tokens" : `config ${C.cyan}quoteMaxTokens${C.reset}${C.dim}`;
-  console.log(`\n${C.bold}${model}${C.reset} ${C.dim}· ${rows.length} lender${rows.length === 1 ? "" : "s"} · estimate for ${count(inTokens)} in / ${count(outTokens)} out (${from})${C.reset}\n`);
+  console.log(`\n${C.bold}${model}${C.reset} ${C.dim}· ${rows.length} sharer${rows.length === 1 ? "" : "s"} · estimate for ${count(inTokens)} in / ${count(outTokens)} out (${from})${C.reset}\n`);
 
   const cells = rows.map((r) => ({
     cost: `${C.green}${usd6(r.micros)}${C.reset}`,
@@ -2954,7 +2954,7 @@ async function cmdPrice(args) {
   console.log(`  ${C.dim}request would quote ${C.reset}${C.green}${usd6(alt)}${C.reset}${C.dim} instead. A request that names no ceiling${C.reset}`);
   console.log(`  ${C.dim}at all is priced at the server's own default of ${count(SERVER_DEFAULT_MAX_TOKENS)}.${C.reset}`);
   console.log(`  ${C.dim}The input side is an assumption — change it with ${C.reset}${C.cyan}--in ${count(inTokens)}${C.reset}${C.dim}.${C.reset}`);
-  console.log(`\n  ${C.dim}Who is online: ${C.reset}${C.cyan}aile lenders --model ${model}${C.reset}${C.dim} · what you have paid: ${C.reset}${C.cyan}aile spend${C.reset}\n`);
+  console.log(`\n  ${C.dim}Who is online: ${C.reset}${C.cyan}aile sharers --model ${model}${C.reset}${C.dim} · what you have paid: ${C.reset}${C.cyan}aile spend${C.reset}\n`);
 }
 
 /**
@@ -2967,7 +2967,7 @@ async function cmdPrice(args) {
  * THIS IS THE HALF OF THE MARKETPLACE THAT IS NOT PUBLIC, AND IT IS WHERE A
  * RATING WOULD HAVE GONE.
  *
- * `aile lenders` shows what a machine has carried for EVERYBODY. This shows what
+ * `aile sharers` shows what a machine has carried for EVERYBODY. This shows what
  * a lender has charged YOU — which is the number that actually decides whether
  * to route to them again. A lender two cents cheaper who timed out on a third of
  * your requests looks worse here than any listing can show, because this is
@@ -3006,14 +3006,14 @@ async function cmdSpend(args) {
 
   const lenders = res.lenders || [];
   if (!lenders.length) {
-    console.log(`\n  ${C.dim}You have not bought from anyone yet.${C.reset}`);
-    console.log(`  ${C.dim}Once a request of yours is served, the lender who served it`);
+    console.log(`\n  ${C.dim}No sharer has served you yet.${C.reset}`);
+    console.log(`  ${C.dim}Once a request of yours is served, the sharer who served it`);
     console.log(`  appears here with what they cost you.${C.reset}`);
-    console.log(`\n  ${C.dim}Who is lending: ${C.reset}${C.cyan}aile lenders${C.reset}\n`);
+    console.log(`\n  ${C.dim}Who is sharing: ${C.reset}${C.cyan}aile sharers${C.reset}\n`);
     return;
   }
 
-  console.log(`\n${C.bold}What you have spent, by lender${C.reset} ${C.dim}· counted from your own requests${C.reset}\n`);
+  console.log(`\n${C.bold}What you have spent, by sharer${C.reset} ${C.dim}· counted from your own requests${C.reset}\n`);
 
   const rows = lenders.map((l, i) => ({
     n: String(i + 1).padStart(2),
@@ -3024,18 +3024,18 @@ async function cmdSpend(args) {
   }));
 
   const w = (k, head) => Math.max(width(head), ...rows.map((r) => width(r[k])));
-  const wh = w("handle", "LENDER"), wq = w("requests", "REQUESTS"), wp = w("paid", "YOU PAID");
+  const wh = w("handle", "SHARER"), wq = w("requests", "REQUESTS"), wp = w("paid", "YOU PAID");
 
-  console.log(`  ${C.dim}${padTo("", 2)}  ${padTo("LENDER", wh)}  ${padTo("REQUESTS", wq)}  ${padTo("YOU PAID", wp)}  LAST USED${C.reset}`);
+  console.log(`  ${C.dim}${padTo("", 2)}  ${padTo("SHARER", wh)}  ${padTo("REQUESTS", wq)}  ${padTo("YOU PAID", wp)}  LAST USED${C.reset}`);
   for (const r of rows) {
     console.log(`  ${C.cyan}${r.n}${C.reset}  ${padTo(r.handle, wh)}  ${padTo(r.requests, wq)}  ${padTo(r.paid, wp)}  ${r.last}`);
   }
 
   const t = res.totals || {};
-  console.log(`\n  ${C.bold}${count(t.requests || 0)}${C.reset} request${t.requests === 1 ? "" : "s"} across ${lenders.length} lender${lenders.length === 1 ? "" : "s"} · ${C.green}$${((t.micros || 0) / 1_000_000).toFixed(2)}${C.reset}${C.dim} in total${C.reset}`);
-  // The handle is what `aile lenders` prints beside a machine, so a buyer who
+  console.log(`\n  ${C.bold}${count(t.requests || 0)}${C.reset} request${t.requests === 1 ? "" : "s"} across ${lenders.length} sharer${lenders.length === 1 ? "" : "s"} · ${C.green}$${((t.micros || 0) / 1_000_000).toFixed(2)}${C.reset}${C.dim} in total${C.reset}`);
+  // The handle is what `aile sharers` prints beside a machine, so a buyer who
   // liked one of these can find whether they are online without retyping it.
-  console.log(`  ${C.dim}Pin one you liked with ${C.reset}${C.cyan}x-aile-node${C.reset}${C.dim} — see ${C.reset}${C.cyan}aile lenders${C.reset}${C.dim} for which are online.${C.reset}\n`);
+  console.log(`  ${C.dim}Pin one you liked with ${C.reset}${C.cyan}x-aile-node${C.reset}${C.dim} — see ${C.reset}${C.cyan}aile sharers${C.reset}${C.dim} for which are online.${C.reset}\n`);
 }
 
 /**
@@ -3248,7 +3248,7 @@ if (args.version || ["version", "-v", "-V"].includes(args._[0])) {
 
 /**
  * HELP RUNS NOTHING. `--help` or `-h` anywhere, and `aile help <command>`,
- * print help and exit before any command is dispatched — so `aile lenders
+ * print help and exit before any command is dispatched — so `aile sharers
  * --help` never touches the network and `aile start -h` never starts a node.
  * Help must work before you have an account; that is when it is needed.
  */
@@ -3290,11 +3290,11 @@ async function home(args) {
       ["setup", "Set up coding tools", "Claude Code, Codex, opencode, …"],
       ["detect", "See installed tools", "what is on this machine, and where"],
       ...(lender
-        ? [["connect", "Connect an AI account", "lend a subscription or an API key"],
-          ["local", "Lend a model on this machine", "download one, run it here, lend it"],
-          ["start", "Start lending", "run this machine as a relay node"],
+        ? [["connect", "Connect an AI account", "share a subscription or an API key"],
+          ["local", "Share a model on this machine", "download one, run it here, share it"],
+          ["start", "Start sharing", "run this machine as a relay node"],
           ["wallet", "Wallet", "balance, and where earnings land"]]
-        : [["login", "Sign in to lend", "get paid for spare capacity"]]),
+        : [["login", "Sign in to share", "get paid for spare capacity"]]),
       ["doctor", "Check everything", "key, server and each tool"],
       ["status", "Full status", "this machine, each account, the relay"],
       ["help", "All commands", ""],
@@ -3384,10 +3384,11 @@ try {
     case "disconnect": await cmdDisconnect(args); break;
     case "status": await cmdStatus(args); break;
     case "stats": await cmdStats(args); break;
-    // BUYING, and the two aliases are not decoration: somebody looking for the
+    // BUYING, and the aliases are not decoration (`lenders` is the old name of
+    // `sharers`, kept so scripts and muscle memory still work): somebody looking for the
     // listing types `market` as often as `lenders`, and an unknown-command exit is
     // a worse answer than the table they wanted.
-    case "lenders": case "market": await cmdLenders(args); break;
+    case "sharers": case "lenders": case "market": await cmdLenders(args); break;
     case "price": case "quote": await cmdPrice(args); break;
     case "spend": await cmdSpend(args); break;
     case "start": await cmdStart(args); break;

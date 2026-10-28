@@ -30,7 +30,7 @@ one command at a staging relay without disturbing the machine's configuration.
 
 ## Non-interactive setup
 
-This is enough to bring up a lender node in an image or a provisioning script with no
+This is enough to bring up a sharer node in an image or a provisioning script with no
 terminal interaction:
 
 ```bash
@@ -81,6 +81,8 @@ Read by `aile local` and, for an engine aile manages, `aile start`.
 | `OLLAMA_MODELS` | Ollama's model folder, used for the free-disk check. |
 | `AILE_LLAMA_SERVER_BIN` | Use your own `llama-server` build instead of downloading the pinned one. |
 | `AILE_HF_URL` | A Hugging Face mirror (https). |
+| `AILE_LLAMACPP_URL` | A mirror for the pinned llama.cpp downloads. Each is still checked against its sha256. |
+| `AILE_LOCAL_NO_INSTALL` | Set to `1` to refuse installing Ollama on this machine outright. llama.cpp, which installs nothing system-wide, is unaffected. |
 | `AILE_LOCAL_HW` | JSON that replaces detected hardware, for a GPU the probes miss: `{"vramBytes": 24000000000, "accel": "cuda"}`. |
 
 ## Your own wallet
@@ -94,6 +96,8 @@ with `AILE_SERVER_URL`.
 | `AILE_SOLANA_RPC` | Solana RPC URL, for example `https://solana-mainnet.g.alchemy.com/v2/<key>`. Same as the `solanaRpc` key. |
 | `AILE_SOLANA_NETWORK` | `mainnet` or `devnet`. Same as the `walletNetwork` key. |
 | `AILE_WALLET_PASSPHRASE` | Unlocks your own wallet when it is encrypted without a prompt, for scripts. `--passphrase` does the same for one command. |
+| `JUPITER_API_KEY` | A Jupiter API key for `aile wallet own swap`, sent only to Jupiter. Optional. |
+| `AILE_JUPITER_URL` | Another Jupiter API base URL (default `https://api.jup.ag`). |
 
 The client reads no `.env` file. To keep an RPC key out of your shell profile, save
 it once with `aile config solanaRpc <url>`: `config.json` is written readable by

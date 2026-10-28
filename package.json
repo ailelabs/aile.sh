@@ -1,7 +1,7 @@
 {
   "name": "aile.sh",
   "version": "1.2.0",
-  "description": "Command-line client for aile.sh — lend spare AI capacity from a machine you own, or choose which lender serves your requests.",
+  "description": "Command-line client for aile.sh — share spare AI capacity from a machine you own, or choose which sharer serves your requests.",
   "type": "module",
   "bin": {
     "aile": "./dist/cli.js"

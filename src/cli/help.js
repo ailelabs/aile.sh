@@ -75,24 +75,24 @@ export const COMMANDS = [
 
   // --- Buying ----------------------------------------------------------------
   {
-    name: "lenders", aliases: ["market"], group: "use", summary: "who is lending models, and what they charge",
+    name: "sharers", aliases: ["market"], legacy: ["lenders"], group: "use", summary: "who is sharing models, and what they charge",
     examples: [
-      ["aile lenders", "everyone online, cheapest first"],
-      ["aile lenders --model gpt-5.2", "with what each would charge for it"],
-      ["aile lenders --max-price 8", "under $8 per million tokens, both ways"],
-      ["aile lenders --verified", "attested subscriptions only"],
-      ["aile lenders --provider codex", "offering that subscription"],
-      ["aile lenders --seller L4f1a…", "one seller, whichever machine is free"],
-      ["aile lenders --node a3f19c2…", "one specific machine"],
-      ["aile lenders --min-served 100", "with a track record behind them"],
-      ["aile lenders --free", "with capacity free this second"],
-      ["aile lenders --sort served|free|uptime|price", "the reading order"],
-      ["aile lenders --json", "the same, for a script"],
+      ["aile sharers", "everyone online, cheapest first"],
+      ["aile sharers --model gpt-5.2", "with what each would charge for it"],
+      ["aile sharers --max-price 8", "under $8 per million tokens, both ways"],
+      ["aile sharers --verified", "attested subscriptions only"],
+      ["aile sharers --provider codex", "offering that subscription"],
+      ["aile sharers --seller L4f1a…", "one seller, whichever machine is free"],
+      ["aile sharers --node a3f19c2…", "one specific machine"],
+      ["aile sharers --min-served 100", "with a track record behind them"],
+      ["aile sharers --free", "with capacity free this second"],
+      ["aile sharers --sort served|free|uptime|price", "the reading order"],
+      ["aile sharers --json", "the same, for a script"],
     ],
     notes: [
       "Filters combine, and every one narrows: --verified --max-price 8 is both.",
-      "The first five have a header twin so a choice you make here is one you can act on — `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender`, `x-aile-node`.",
-      "--seller is the person and --node is the box: a lender may run several.",
+      "The first five have a header twin so a choice you make here is one you can act on — `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-sharer`, `x-aile-node`.",
+      "--seller is the person and --node is the box: a sharer may run several.",
       "--min-served, --free and --sort change only what you read; requests are always routed cheapest-first, which is also the default order here.",
       "A /v1 request's model must be <provider>/<model> (cc/claude-sonnet-5, local/llama3), or a bare id with x-aile-provider. A bare id alone is a 400.",
     ],
@@ -100,7 +100,7 @@ export const COMMANDS = [
   {
     name: "price", aliases: ["quote"], group: "use", summary: "what one model request would cost, at each rate",
     examples: [
-      ["aile price gpt-5.2", "at each lender's rate"],
+      ["aile price gpt-5.2", "at each sharer's rate"],
       ["aile price gpt-5.2 --max-tokens 1024", "what the NEXT one would cost at that output ceiling"],
       ["aile price gpt-5.2 --in 3000", "assume this many input tokens"],
     ],
@@ -110,8 +110,8 @@ export const COMMANDS = [
     ],
   },
   {
-    name: "spend", group: "use", summary: "what each model lender has cost you",
-    examples: [["aile spend", "your buying: what each lender charged you"], ["aile spend --json", "the same, for a script"]],
+    name: "spend", group: "use", summary: "what each model sharer has cost you",
+    examples: [["aile spend", "your calls: what each sharer charged you"], ["aile spend --json", "the same, for a script"]],
   },
   {
     name: "chat", aliases: ["ask"], group: "use", summary: "call an AI model once, paid per request",
@@ -178,7 +178,7 @@ export const COMMANDS = [
     notes: ["Signing in as a different account offers to move your coding tools' key to it (--yes accepts)."],
   },
   {
-    name: "connect", group: "lend", summary: "connect an AI account to lend (no name = pick one)",
+    name: "connect", group: "lend", summary: "connect an AI account to share (no name = pick one)",
     examples: [
       ["aile connect", "pick from a list; also shows which providers take a key"],
       ["aile connect codex", "a subscription, through the provider's own sign-in"],
@@ -202,7 +202,7 @@ export const COMMANDS = [
     examples: [["aile accounts", "numbered per provider — the numbers other commands take"], ["aile accounts --json", "the same, for a script"]],
   },
   {
-    name: "capacity", group: "lend", summary: "everything this machine lends, by kind",
+    name: "capacity", group: "lend", summary: "everything this machine shares, by kind",
     examples: [["aile capacity", "subscriptions, keys and your own model"], ["aile capacity --json", "the same, for a script"]],
     notes: ["They differ in what stops them: a plan's ceiling, your invoice, or nothing. Only the first two are blind."],
   },
@@ -261,9 +261,9 @@ export const COMMANDS = [
     examples: [["aile disconnect 2", "by number, not by id"], ["aile disconnect 2 --yes", "without the confirmation"]],
   },
   {
-    name: "local", group: "lend", summary: "download a model, run it here, and lend it",
+    name: "local", group: "lend", summary: "download a model, run it here, and share it",
     examples: [
-      ["aile local setup", "one command: engine, model, test, lend"],
+      ["aile local setup", "one command: engine, model, test, share"],
       ["aile local", "what is set up, and what it sells as"],
       ["aile local models", "models that download and sell, and which fit here"],
       ["aile local pull qwen/qwen3-8b", "download one (a curated id or an Ollama tag)"],
@@ -272,9 +272,9 @@ export const COMMANDS = [
       ["aile local run <model> \"hi\"", "talk to it; no prompt opens a chat"],
       ["aile local rm <model>", "delete one"],
       ["aile local install llamacpp", "the engine that needs no install of its own"],
-      ["aile local on", "offer it to buyers"],
-      ["aile local --off", "stop lending it"],
-      ["aile local http://127.0.0.1:1234", "lend a server you already run (vLLM, LM Studio, …)"],
+      ["aile local on", "offer it to callers"],
+      ["aile local --off", "stop sharing it"],
+      ["aile local http://127.0.0.1:1234", "share a server you already run (vLLM, LM Studio, …)"],
     ],
     notes: [
       "Engines: Ollama by default; llama.cpp (`--engine llamacpp`) when Ollama cannot be installed — aile downloads it and runs it only while `aile start` runs.",
@@ -283,7 +283,7 @@ export const COMMANDS = [
     ],
   },
   {
-    name: "mcp", group: "lend", summary: "lend your own MCP tools to other agents, from this machine",
+    name: "mcp", group: "lend", summary: "share your own MCP tools with other agents, from this machine",
     examples: [
       ["aile mcp", "what is declared, and whether it can run"],
       ["aile mcp check", "validate the file, print the exact argv"],
@@ -291,8 +291,8 @@ export const COMMANDS = [
       ["aile mcp path", "where mcp-servers.json lives"],
     ],
     notes: [
-      "This LENDS your own MCP tools to other agents. To USE tools other agents offer, run `aile agents`. To give an agent aile's own tools (models, other agents' tools, your balance), add the remote server: `claude mcp add --transport http aile https://api.aile.sh/mcp`.",
-      "Declared in mcp-servers.json next to your config. Each rented session runs in its own throwaway container: read-only root, no host filesystem, no network unless you name hosts. No sandbox, no lending — there is no unsandboxed fallback.",
+      "This SHARES your own MCP tools with other agents. To USE tools other agents offer, run `aile agents`. To give an agent aile's own tools (models, other agents' tools, your balance), add the remote server: `claude mcp add --transport http aile https://api.aile.sh/mcp`.",
+      "Declared in mcp-servers.json next to your config. Each caller's session runs in its own throwaway container: read-only root, no host filesystem, no network unless you name hosts. No sandbox, no sharing — there is no unsandboxed fallback.",
     ],
   },
   {
@@ -325,7 +325,7 @@ export const COMMANDS = [
   {
     name: "donate", aliases: ["contribute"], group: "lend", summary: "contribute this machine (unpaid, no account)",
     examples: [["aile donate", "no sign-up; this machine starts helping"], ["aile donate --yes", "skip the confirmation, for images"]],
-    notes: ["Buyers still pay the normal rate — you are donating the earnings, not the price. Nothing accrues, and nothing can be claimed later. Run `aile login` instead to be paid for the same work."],
+    notes: ["Callers still pay the normal rate — you are donating the earnings, not the price. Nothing accrues, and nothing can be claimed later. Run `aile login` instead to be paid for the same work."],
   },
 
   // --- Account & client --------------------------------------------------------
@@ -364,9 +364,13 @@ export const GLOBAL_OPTIONS = [
 ];
 
 const byName = new Map();
+const legacyNames = new Map();
 for (const c of COMMANDS) {
   byName.set(c.name, c);
   for (const a of c.aliases || []) byName.set(a, c);
+  // Old names keep working, but are not advertised: no "also:" entry, and a
+  // typo of one is answered with the current name (see unknownCommand).
+  for (const a of c.legacy || []) { byName.set(a, c); legacyNames.set(a, c.name); }
 }
 
 /** The command a name or alias refers to, or null. */
@@ -418,7 +422,7 @@ const GROUPS = [
   ["tools", "Use aile from your coding tools"],
   ["use", "Use models and agents' tools"],
   ["wallet", "Wallet & funds"],
-  ["lend", "Lend your models and tools"],
+  ["lend", "Share your models and tools"],
   ["account", "Account"],
 ];
 
@@ -461,10 +465,10 @@ const codeSpans = (text) => String(text).replace(/`([^`]+)`/g, `${C.reset}${C.cy
  * dotted line, because a list of twenty-five commands is where the eye stops.
  */
 export function overview() {
-  const lines = [heading("aile.sh", "use and lend AI models and agents' tools, paid per request"), ""];
+  const lines = [heading("aile.sh", "use and share AI models and agents' tools, paid per request"), ""];
   const PRIMARY = {
     tools: ["setup", "detect", "run", "doctor"],
-    use: ["chat", "agents", "lenders", "price", "spend"],
+    use: ["chat", "agents", "sharers", "price", "spend"],
     wallet: ["balance", "deposit", "wallet"],
     lend: ["login", "connect", "local", "start", "status"],
     account: ["config", "update"],
@@ -491,6 +495,7 @@ export function overview() {
 export function commandHelp(c) {
   const lines = [heading(`aile ${c.name}`, c.summary)];
   if (c.aliases?.length) lines.push(dim(`also: ${c.aliases.map((a) => `aile ${a}`).join(", ")}`));
+  if (c.legacy?.length) lines.push(dim(`old name: ${c.legacy.map((a) => `aile ${a}`).join(", ")}`));
   lines.push("");
   const w = Math.max(...c.examples.map(([e]) => width(e)));
   for (const [e, what] of c.examples) {
@@ -507,7 +512,7 @@ export function commandHelp(c) {
 
 /** What an unknown command gets: one line, a suggestion, and where to look. */
 export function unknownCommand(name) {
-  const hits = suggest(name, commandNames());
+  const hits = [...new Set(suggest(name, commandNames()).map((h) => legacyNames.get(h) ?? h))];
   const lines = [bad(`Unknown command "${name}".`)];
   if (hits.length) lines.push(`    ${dim("Did you mean")} ${hits.map((h) => cmd(`aile ${h}`)).join(dim(" or "))}${dim("?")}`);
   lines.push(`    ${cmd("aile help")} ${dim("lists every command.")}`);

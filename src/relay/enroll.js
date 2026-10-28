@@ -61,7 +61,7 @@ export async function enrollNode({ serverUrl, renterToken, timeoutMs = 15000 }) 
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     // Map the two the renter can actually act on; anything else passes through.
-    if (res.status === 401) throw new Error("token rejected — check the renter token");
+    if (res.status === 401) throw new Error("token rejected — check the account token");
     if (res.status === 409) {
       const e = new Error("this machine is registered to another account");
       e.code = "NODE_OWNED";

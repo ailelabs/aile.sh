@@ -173,7 +173,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     const srv = stubServer();
     try {
       const res = await run(
-        ["lenders", "--model", "claude-opus-5", "--max-price", "8", "--verified", "--provider", "claude"],
+        ["sharers", "--model", "claude-opus-5", "--max-price", "8", "--verified", "--provider", "claude"],
         { data: signedInData(srv.url) },
       );
       expect(res.code).toBe(0);
@@ -189,7 +189,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     // the model filter disappears — and the printed table looks entirely normal.
     const srv = stubServer();
     try {
-      await run(["lenders", "--verified", "--model", "claude-opus-5"], { data: signedInData(srv.url) });
+      await run(["sharers", "--verified", "--model", "claude-opus-5"], { data: signedInData(srv.url) });
       const q = srv.query();
       expect(q.verified).toBe("1");
       expect(q.model).toBe("claude-opus-5");
@@ -202,7 +202,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     // fill and gets an unpriced answer under a priced-looking command.
     const srv = stubServer({ market: UNPRICED });
     try {
-      await run(["lenders"], { data: signedInData(srv.url) });
+      await run(["sharers"], { data: signedInData(srv.url) });
       expect(srv.calls[0]).toBe("GET /market");
     } finally { srv.stop(); }
   });
@@ -210,7 +210,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
   it("accepts --maxPrice as well as --max-price, because both get typed", async () => {
     const srv = stubServer();
     try {
-      await run(["lenders", "--maxPrice", "12"], { data: signedInData(srv.url) });
+      await run(["sharers", "--maxPrice", "12"], { data: signedInData(srv.url) });
       expect(srv.query().maxPrice).toBe("12");
     } finally { srv.stop(); }
   });
@@ -221,7 +221,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     // one into the other fails exactly when the buyer wanted the other one.
     const srv = stubServer();
     try {
-      await run(["lenders", "--seller", "Labcdef0123456789", "--node", "node-cheap-1"], {
+      await run(["sharers", "--seller", "Labcdef0123456789", "--node", "node-cheap-1"], {
         data: signedInData(srv.url),
       });
       expect(srv.query()).toEqual({ handle: "Labcdef0123456789", nodeId: "node-cheap-1" });
@@ -231,15 +231,44 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
   it("accepts --lender as a name for --seller, because both get typed", async () => {
     const srv = stubServer();
     try {
-      await run(["lenders", "--lender", "Labcdef0123456789"], { data: signedInData(srv.url) });
+      await run(["sharers", "--lender", "Labcdef0123456789"], { data: signedInData(srv.url) });
       expect(srv.query().handle).toBe("Labcdef0123456789");
+    } finally { srv.stop(); }
+  });
+
+  it("accepts --sharer too, and --lender still works", async () => {
+    const srv = stubServer();
+    try {
+      await run(["sharers", "--sharer", "Labcdef0123456789"], { data: signedInData(srv.url) });
+      expect(srv.query().handle).toBe("Labcdef0123456789");
+    } finally { srv.stop(); }
+  });
+
+  it("`aile lenders` is the old name of `aile sharers`: the same handler, request and output", async () => {
+    // The old name must keep working for scripts and muscle memory. Two runs
+    // against the same stub, one under each name, must be indistinguishable: the
+    // same request on the wire, the same table, the same JSON.
+    const srv = stubServer();
+    try {
+      for (const extra of [[], ["--model", "claude-opus-5", "--verified"], ["--json"]]) {
+        const fresh = await run(["sharers", ...extra], { data: signedInData(srv.url) });
+        const old = await run(["lenders", ...extra], { data: signedInData(srv.url) });
+        expect({ code: old.code, stdout: old.stdout }).toEqual({ code: fresh.code, stdout: fresh.stdout });
+        expect(fresh.code).toBe(0);
+      }
+      // The wire itself is unchanged by the rename: the server is asked at /market.
+      expect(srv.calls.every((c) => c.startsWith("GET /market"))).toBe(true);
+      expect(srv.calls.length).toBe(6);
+      // And `aile lenders --lender` (old command, old flag) still reaches the filter.
+      await run(["lenders", "--lender", "Labcdef0123456789"], { data: signedInData(srv.url) });
+      expect(srv.calls.at(-1)).toContain("handle=Labcdef0123456789");
     } finally { srv.stop(); }
   });
 
   it("sends the reading filters: --min-served, --free and --sort", async () => {
     const srv = stubServer();
     try {
-      await run(["lenders", "--min-served", "100", "--free", "--sort", "served"], {
+      await run(["sharers", "--min-served", "100", "--free", "--sort", "served"], {
         data: signedInData(srv.url),
       });
       expect(srv.query()).toEqual({ minServed: "100", freeOnly: "1", sort: "served" });
@@ -252,7 +281,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     // disappears while the table still prints and still looks filtered.
     const srv = stubServer();
     try {
-      await run(["lenders", "--free", "--sort", "free"], { data: signedInData(srv.url) });
+      await run(["sharers", "--free", "--sort", "free"], { data: signedInData(srv.url) });
       expect(srv.query()).toEqual({ freeOnly: "1", sort: "free" });
     } finally { srv.stop(); }
   });
@@ -263,7 +292,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     // price-ordered table and never say so. The error also names the four.
     const srv = stubServer();
     try {
-      const res = await run(["lenders", "--sort", "srved"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--sort", "srved"], { data: signedInData(srv.url) });
       expect(res.code).toBe(1);
       expect(res.all).toContain("price, served, free, uptime");
       expect(srv.calls).toHaveLength(0);   // never reached the wire
@@ -274,7 +303,7 @@ describe("THE FILTERS REACH THE WIRE, which is the only place they can be seen",
     const srv = stubServer();
     try {
       await run([
-        "lenders", "--model", "claude-opus-5", "--max-price", "8", "--verified",
+        "sharers", "--model", "claude-opus-5", "--max-price", "8", "--verified",
         "--provider", "claude", "--min-served", "10", "--free", "--sort", "uptime",
       ], { data: signedInData(srv.url) });
       expect(srv.query()).toEqual({
@@ -289,7 +318,7 @@ describe("the table", () => {
   it("prints every lender, numbered, with its machine and its handle", async () => {
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("node-cheap-1");
       expect(res.stdout).toContain("node-dear-2");
       // BOTH names, because they answer different questions: the machine is what
@@ -302,7 +331,7 @@ describe("the table", () => {
   it("KEEPS THE SERVER'S ORDER, which is the order requests are routed in", async () => {
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout.indexOf("node-cheap-1")).toBeLessThan(res.stdout.indexOf("node-dear-2"));
       expect(res.stdout).toContain("the same order your request is routed in");
     } finally { srv.stop(); }
@@ -313,7 +342,7 @@ describe("the table", () => {
     // shows both because the ceiling filter bounds both.
     const srv = stubServer();
     try {
-      const res = await run(["lenders", "--model", "claude-opus-5"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--model", "claude-opus-5"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("$2.50");
       expect(res.stdout).toContain("$7.50");
     } finally { srv.stop(); }
@@ -324,7 +353,7 @@ describe("the table", () => {
     // the model's family. A buyer should be told, not shown a confident price.
     const srv = stubServer();
     try {
-      const res = await run(["lenders", "--model", "claude-opus-5"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--model", "claude-opus-5"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("~");
       expect(res.stdout).toContain("estimated from its family");
     } finally { srv.stop(); }
@@ -333,7 +362,7 @@ describe("the table", () => {
   it("SAYS TO NAME A MODEL rather than printing a price without one", async () => {
     const srv = stubServer({ market: UNPRICED });
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--model");
       expect(res.stdout).not.toContain("$2.50");
     } finally { srv.stop(); }
@@ -344,7 +373,7 @@ describe("the table", () => {
     // also true for a good fraction of readers who have colour.
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("✓claude");
       expect(res.stdout).toContain("·codex");
       expect(res.stdout).toContain("×2");        // two accounts behind one provider
@@ -354,7 +383,7 @@ describe("the table", () => {
   it("SAYS WHAT SERVED COUNTS, so it is not read as an opinion", async () => {
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("1,204");
       expect(res.stdout).toContain("requests actually relayed");
     } finally { srv.stop(); }
@@ -366,14 +395,14 @@ describe("the table", () => {
     // with no way to act on it is a view, not a choice.
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
-      for (const h of ["x-aile-node", "x-aile-lender", "x-aile-max-price", "x-aile-verified", "x-aile-provider"]) {
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
+      for (const h of ["x-aile-node", "x-aile-sharer", "x-aile-max-price", "x-aile-verified", "x-aile-provider"]) {
         expect({ h, printed: res.stdout.includes(h) }).toEqual({ h, printed: true });
       }
       // With the top row's own id and handle filled in, so they can be copied
       // as-is: "the one at the top, every time" is the common case.
       expect(res.stdout).toContain("x-aile-node: node-cheap-1");
-      expect(res.stdout).toContain("x-aile-lender: Labcdef0123456789");
+      expect(res.stdout).toContain("x-aile-sharer: Labcdef0123456789");
     } finally { srv.stop(); }
   });
 
@@ -381,7 +410,7 @@ describe("the table", () => {
     // Filled in like the headers: row 1's first provider and the model asked for.
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain('"model": "claude/claude-opus-5"');
       expect(res.stdout).toContain("local/<model>");
     } finally { srv.stop(); }
@@ -395,7 +424,7 @@ describe("the table", () => {
       },
     });
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain('"model": "local/llama3"');
     } finally { srv.stop(); }
   });
@@ -405,7 +434,7 @@ describe("the table", () => {
     // so, a reader invents `x-aile-sort`, sends it, and it is ignored in silence.
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("no header, no routing change");
       expect(res.stdout).not.toContain("x-aile-sort");
     } finally { srv.stop(); }
@@ -414,7 +443,7 @@ describe("the table", () => {
   it("--json prints the server's answer untouched", async () => {
     const srv = stubServer();
     try {
-      const res = await run(["lenders", "--json"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--json"], { data: signedInData(srv.url) });
       expect(res.code).toBe(0);
       expect(JSON.parse(res.stdout)).toEqual(LENDERS);
     } finally { srv.stop(); }
@@ -429,9 +458,9 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       market: empty({ model: null, maxUsdPerMtok: null, verified: false, provider: null }, 0),
     });
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.code).toBe(0);
-      expect(res.stdout).toContain("Nobody is lending right now");
+      expect(res.stdout).toContain("Nobody is sharing right now");
       // NOT a filter suggestion — no filter would help.
       expect(res.stdout).not.toContain("Raise the ceiling");
     } finally { srv.stop(); }
@@ -442,8 +471,8 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       market: empty({ model: "claude-opus-5", maxUsdPerMtok: 1, verified: false, provider: null }),
     });
     try {
-      const res = await run(["lenders", "--model", "claude-opus-5", "--max-price", "1"], { data: signedInData(srv.url) });
-      expect(res.stdout).toContain("4 machines are lending");
+      const res = await run(["sharers", "--model", "claude-opus-5", "--max-price", "1"], { data: signedInData(srv.url) });
+      expect(res.stdout).toContain("4 machines are sharing");
       expect(res.stdout).toContain("--max-price 2");
     } finally { srv.stop(); }
   });
@@ -453,7 +482,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       market: empty({ model: null, maxUsdPerMtok: null, verified: true, provider: null }),
     });
     try {
-      const res = await run(["lenders", "--verified"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--verified"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--verified");
       expect(res.stdout).toContain("signed provider token");
     } finally { srv.stop(); }
@@ -464,7 +493,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       market: empty({ model: null, maxUsdPerMtok: null, verified: false, provider: "codex" }),
     });
     try {
-      const res = await run(["lenders", "--provider", "codex"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--provider", "codex"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--provider codex");
     } finally { srv.stop(); }
   });
@@ -474,7 +503,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       market: empty({ model: null, maxUsdPerMtok: null, verified: false, provider: null }),
     });
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("None is listed");
     } finally { srv.stop(); }
   });
@@ -484,8 +513,8 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       market: empty({ model: null, maxUsdPerMtok: null, verified: false, provider: null }, 1),
     });
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
-      expect(res.stdout).toContain("1 machine is lending");
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
+      expect(res.stdout).toContain("1 machine is sharing");
     } finally { srv.stop(); }
   });
 
@@ -499,7 +528,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       }),
     });
     try {
-      const res = await run(["lenders", "--node", "node-gone", "--max-price", "5"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--node", "node-gone", "--max-price", "5"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--node node-gone");
       expect(res.stdout.indexOf("--node node-gone")).toBeLessThan(res.stdout.indexOf("Raise the ceiling"));
     } finally { srv.stop(); }
@@ -513,7 +542,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       }),
     });
     try {
-      const res = await run(["lenders", "--seller", "Labcdef0123456789"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--seller", "Labcdef0123456789"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--seller Labcdef0123456789");
       expect(res.stdout).toContain("none of their machines are online");
     } finally { srv.stop(); }
@@ -527,7 +556,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       }),
     });
     try {
-      const res = await run(["lenders", "--min-served", "500"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--min-served", "500"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--min-served 500");
       expect(res.stdout).toContain("served nobody yet");
     } finally { srv.stop(); }
@@ -543,7 +572,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       }),
     });
     try {
-      const res = await run(["lenders", "--free"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--free"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("--free");
       expect(res.stdout).toContain("free up between requests");
     } finally { srv.stop(); }
@@ -559,7 +588,7 @@ describe("AN EMPTY TABLE NAMES THE THING TO RELAX", () => {
       }),
     });
     try {
-      const res = await run(["lenders", "--min-served", "5"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--min-served", "5"], { data: signedInData(srv.url) });
       expect(res.stdout).not.toContain("None is listed");
     } finally { srv.stop(); }
   });
@@ -569,7 +598,7 @@ describe("THE HEADING SAYS WHICH ORDER THIS IS, because only one is a promise", 
   it("claims the routing order only when the order IS the routing order", async () => {
     const srv = stubServer();
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("the same order your request is routed in");
     } finally { srv.stop(); }
   });
@@ -581,7 +610,7 @@ describe("THE HEADING SAYS WHICH ORDER THIS IS, because only one is a promise", 
       market: { ...LENDERS, filters: { ...LENDERS.filters, sort: "served" } },
     });
     try {
-      const res = await run(["lenders", "--sort", "served"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--sort", "served"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("sorted by served");
       expect(res.stdout).toContain("requests still route cheapest-first");
       expect(res.stdout).not.toContain("the same order your request is routed in");
@@ -593,7 +622,7 @@ describe("THE HEADING SAYS WHICH ORDER THIS IS, because only one is a promise", 
       market: { ...LENDERS, filters: { ...LENDERS.filters, sort: "price" } },
     });
     try {
-      const res = await run(["lenders", "--sort", "price"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--sort", "price"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("the same order your request is routed in");
     } finally { srv.stop(); }
   });
@@ -609,7 +638,7 @@ describe("THE HEADING SAYS WHICH ORDER THIS IS, because only one is a promise", 
       },
     });
     try {
-      const res = await run(["lenders", "--sort", "uptime"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--sort", "uptime"], { data: signedInData(srv.url) });
       expect(res.stdout.indexOf("node-dear-2")).toBeLessThan(res.stdout.indexOf("node-cheap-1"));
     } finally { srv.stop(); }
   });
@@ -640,7 +669,7 @@ describe("aile spend — the half of the ledger that is the reader's own", () =>
     try {
       const res = await run(["spend"], { data: signedInData(srv.url) });
       expect(res.stdout).toContain("$4.00");
-      expect(res.stdout).toContain("50 requests across 2 lenders");
+      expect(res.stdout).toContain("50 requests across 2 sharers");
     } finally { srv.stop(); }
   });
 
@@ -658,8 +687,8 @@ describe("aile spend — the half of the ledger that is the reader's own", () =>
     try {
       const res = await run(["spend"], { data: signedInData(srv.url) });
       expect(res.code).toBe(0);
-      expect(res.stdout).toContain("You have not bought from anyone yet");
-      expect(res.stdout).toContain("aile lenders");
+      expect(res.stdout).toContain("No sharer has served you yet");
+      expect(res.stdout).toContain("aile sharers");
     } finally { srv.stop(); }
   });
 
@@ -707,7 +736,7 @@ describe("nothing here records an opinion", () => {
       market: { ...LENDERS, lenders: LENDERS.lenders.map((l) => ({ ...l, rating: { avg: 4.8, count: 17 } })) },
     });
     try {
-      const res = await run(["lenders"], { data: signedInData(srv.url) });
+      const res = await run(["sharers"], { data: signedInData(srv.url) });
       expect(res.stdout).not.toContain("4.8");
       expect(res.stdout).not.toMatch(/★|RATING|no reviews/i);
     } finally { srv.stop(); }
@@ -715,7 +744,7 @@ describe("nothing here records an opinion", () => {
 
   it("lists both buying commands in the help, and no review", async () => {
     const res = await run(["--help"], { data: signedInData("https://example.invalid") });
-    expect(res.stdout).toContain("aile lenders");
+    expect(res.stdout).toContain("aile sharers");
     expect(res.stdout).toContain("aile spend");
     expect(res.stdout).not.toMatch(/aile review/);
   });
@@ -733,7 +762,7 @@ describe("nothing here records an opinion", () => {
  */
 describe("every filter is documented where somebody will find it", () => {
   it("names all nine filters in the help", async () => {
-    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["sharers", "--help"], { data: signedInData("https://example.invalid") });
     for (const flag of [
       "--model", "--max-price", "--verified", "--provider",
       "--seller", "--node", "--min-served", "--free", "--sort",
@@ -743,25 +772,25 @@ describe("every filter is documented where somebody will find it", () => {
   });
 
   it("says filters combine, since narrowing twice is the point of having nine", async () => {
-    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["sharers", "--help"], { data: signedInData("https://example.invalid") });
     expect(res.stdout).toContain("Filters combine");
   });
 
   it("EXPLAINS --seller AGAINST --node, the one pair that is easy to confuse", async () => {
-    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["sharers", "--help"], { data: signedInData("https://example.invalid") });
     expect(res.stdout).toContain("--seller is the person and --node is the box");
   });
 
   it("names every header twin, and says which flags have none", async () => {
-    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
-    for (const h of ["x-aile-max-price", "x-aile-verified", "x-aile-provider", "x-aile-lender", "x-aile-node"]) {
+    const res = await run(["sharers", "--help"], { data: signedInData("https://example.invalid") });
+    for (const h of ["x-aile-max-price", "x-aile-verified", "x-aile-provider", "x-aile-sharer", "x-aile-node"]) {
       expect({ h, documented: res.stdout.includes(h) }).toEqual({ h, documented: true });
     }
     expect(res.stdout).toContain("change only what you read");
   });
 
   it("lists the four sort orders, which exist nowhere else a reader can see", async () => {
-    const res = await run(["lenders", "--help"], { data: signedInData("https://example.invalid") });
+    const res = await run(["sharers", "--help"], { data: signedInData("https://example.invalid") });
     expect(res.stdout).toContain("--sort served|free|uptime|price");
   });
 });
@@ -771,7 +800,7 @@ describe("when it cannot get an answer", () => {
     // A closed port and a network with no lenders on it are opposite situations
     // and an empty table reads the same for both.
     const data = signedInData("http://127.0.0.1:1");
-    const res = await run(["lenders"], { data });
+    const res = await run(["sharers"], { data });
     expect(res.code).toBe(1);
     expect(res.all).toContain("Could not reach the server");
   });
@@ -783,7 +812,7 @@ describe("when it cannot get an answer", () => {
       market: { error: "x-aile-max-price is dollars per million tokens" }, status: 400,
     });
     try {
-      const res = await run(["lenders", "--max-price", "cheap"], { data: signedInData(srv.url) });
+      const res = await run(["sharers", "--max-price", "cheap"], { data: signedInData(srv.url) });
       expect(res.code).toBe(1);
       expect(res.all).toContain("dollars per million tokens");
     } finally { srv.stop(); }
@@ -798,7 +827,7 @@ describe("when it cannot get an answer", () => {
       path.join(dir, "config.json"),
       JSON.stringify({ serverUrl: "http://example.invalid", renterToken: `ail_${"a".repeat(48)}` }),
     );
-    const res = await run(["lenders"], { data: dir });
+    const res = await run(["sharers"], { data: dir });
     expect(res.code).toBe(1);
     expect(res.all).toMatch(/http|insecure/i);
   });
@@ -807,7 +836,7 @@ describe("when it cannot get an answer", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aile-lenders-cli-"));
     scratches.push(dir);
     fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ serverUrl: "https://example.invalid" }));
-    for (const cmd of ["lenders", "spend"]) {
+    for (const cmd of ["sharers", "spend"]) {
       const res = await run([cmd], { data: dir });
       expect({ cmd, code: res.code }).toEqual({ cmd, code: 1 });
       expect(res.all).toContain("aile login");

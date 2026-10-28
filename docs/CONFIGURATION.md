@@ -56,12 +56,12 @@ Changes take effect on the next `aile start`.
 
 ## Self-hosted
 
-Lending a model running on your own machine. Off unless you turn it on; see
-[Self-hosted models](https://aile.sh/docs/lend/local).
+Sharing a model running on your own machine. Off unless you turn it on; see
+[Self-hosted models](https://aile.sh/docs/share/local).
 
 | Key | Default | What it does |
 |---|---|---|
-| `localEnabled` | `false` | Also lend a self-hosted model. |
+| `localEnabled` | `false` | Also share a self-hosted model. |
 | `localEndpoint` | — | OpenAI-compatible base URL. Loopback or LAN addresses only. |
 | `localModels` | — | Comma-separated names to advertise. Blank asks the endpoint. |
 | `localEngine` | `external` | What runs the model: `external` (a server you run), `ollama` or `llamacpp`. Set by `aile local setup`; `aile start` starts a managed engine first. |
@@ -71,7 +71,7 @@ Lending a model running on your own machine. Off unless you turn it on; see
 > [!WARNING]
 > **Names are forwarded verbatim**
 >
-> Buyers send `local/<name>`; Aile strips `local/` and passes the rest to your
+> Callers send `local/<name>`; Aile strips `local/` and passes the rest to your
 > endpoint unchanged, so the names you advertise must be exactly the names your
 > endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
 > those requests will not resolve.

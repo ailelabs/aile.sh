@@ -293,7 +293,7 @@ describe("nothing lent yet", () => {
     stub.stop();
     stub = stubServer({ accounts: [] });
     const { stdout } = await run(["capacity"], { data: signedInData(stub.url) });
-    expect(stdout).toMatch(/not lending anything/i);
+    expect(stdout).toMatch(/not sharing anything/i);
     expect(stdout).toMatch(/aile connect/);
     expect(stdout).toMatch(/aile local/);
     expect(stdout).toContain("local/<model>");

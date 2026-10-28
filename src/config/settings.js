@@ -118,7 +118,7 @@ export const SCHEMA = {
     type: "bool",
     default: false,
     group: "Self-hosted",
-    describe: "also lend a model running on this machine",
+    describe: "also share a model running on this machine",
   },
   localEndpoint: {
     type: "url",

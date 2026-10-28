@@ -3,11 +3,11 @@
 
 # CLI
 
-`aile.sh` is the client a lender installs. It signs you in, links provider
+`aile.sh` is the client a sharer installs. It signs you in, links provider
 accounts, sets your prices, and runs your machine as a relay node.
 
-Buyers do not need it. A buyer key and a base URL are enough. It is still useful
-on the buying side for discovery and accounting: `aile lenders`, `aile price` and
+Callers do not need it. A caller key and a base URL are enough. It is still useful
+on the calling side for discovery and accounting: `aile sharers`, `aile price` and
 `aile spend` read the same server-side data the marketplace page does.
 
 ## Install
@@ -27,13 +27,13 @@ Nothing else on the machine is touched.
 ```bash
 aile login      # sign in, and register this machine
 aile connect    # link an AI account — a menu if you name no provider
-aile capacity   # confirm what this machine now lends
+aile capacity   # confirm what this machine now shares
 aile start      # run as a relay node
 ```
 
 Bare `aile` on a machine where nothing is set up yet starts a short first-run
 prompt. Once anything is set up (a sign-in, an API key, or a coding tool), it
-shows a few lines: your balance, your coding tools, and what you lend (with a
+shows a few lines: your balance, your coding tools, and what you share (with a
 served count only when some account is served through a machine). Then, in a
 terminal, a menu of likely next steps: arrows or a number, then enter; Esc or `q`
 quits. Off a terminal it prints the summary and exits, so a script never waits on
@@ -49,7 +49,9 @@ surprises people.
   `--insecure`, `--reset`, `--path`, `--help`, `--json`, `--paste`, `--browser`,
   `--off`, `--yes`, `--verified`, `--free`, `--free-only`, `--nodeless`,
   `--no-nodeless`, `--all`, `--dry-run`, `--new-key`, `--remove`, `--revoke`,
-  `--keep-key`, `--fast`, `--tools`, `--keep-home` and `--debug`. A value after
+  `--keep-key`, `--fast`, `--tools`, `--keep-home`, `--debug`, `--anthropic`,
+  `--no-encrypt`, `--qr`, `--no-qr`, `--start`, `--no-start`, `--cpu`, `--force`
+  and `--keep-base`. A value after
   one of those is read as a positional argument, not as the flag's value.
 - Everything else collects as positionals.
 
@@ -63,7 +65,7 @@ These work on any command.
 | `--insecure` | Permit a plain `http://` server for this one command. Staging only; refused otherwise. `aile start` takes only the saved `allowInsecure`, because the node re-dials for as long as it runs. |
 | `--json` | Machine-readable output. Supported on the read commands. |
 | `--yes` | Skip confirmations. |
-| `--help`, `-h` | The command overview. After a command (`aile lenders --help`), that command's examples and details. Help never runs the command or touches the network. |
+| `--help`, `-h` | The command overview. After a command (`aile sharers --help`), that command's examples and details. Help never runs the command or touches the network. |
 | `--version`, `-v` | Print the client version. |
 
 ## How output behaves

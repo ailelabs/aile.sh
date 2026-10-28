@@ -98,7 +98,7 @@ export async function welcome({
 export function welcomeNonInteractive({ log = console.log } = {}) {
   log(`\nUse aile from Claude Code, Codex, opencode and more:`);
   log(`  ${C.cyan}aile setup --all --yes${C.reset}      ${C.dim}every tool found here${C.reset}`);
-  log(`\nOr sign in to lend:`);
+  log(`\nOr sign in to share:`);
   log(`  ${C.cyan}aile login${C.reset}                  ${C.dim}browser, or paste a token${C.reset}`);
   log(`  ${C.cyan}aile login --paste${C.reset}          ${C.dim}no browser on this machine${C.reset}`);
   log(`  ${C.cyan}aile login --token <token>${C.reset}  ${C.dim}scripts, images, systemd${C.reset}`);

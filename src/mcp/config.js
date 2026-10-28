@@ -102,7 +102,7 @@ export function normalizeServer(raw, index = 0) {
     if (key in raw) {
       throw new Error(
         `${where}: "${key}" is not supported and is refused rather than ignored — ` +
-        `a rented MCP server runs with a read-only root, a tmpfs /tmp and no host ` +
+        `a shared MCP server runs with a read-only root, a tmpfs /tmp and no host ` +
         `filesystem at all. Nothing on this machine is reachable from it by design.`,
       );
     }
@@ -136,10 +136,10 @@ export function normalizeServer(raw, index = 0) {
         throw new Error(
           `${where}: env ${k} looks like it expects the host environment to be substituted. ` +
           `It is not — values here are literal, deliberately: the node's own environment ` +
-          `holds this machine's account token and is never handed to a rented child. ` +
+          `holds this machine's account token and is never handed to the server process. ` +
           `Write the value itself. A value that genuinely contains a "$" followed by a ` +
           `letter is refused for the same reason: nothing here can tell the two apart, ` +
-          `and guessing wrong ships a broken credential into a rented container.`,
+          `and guessing wrong ships a broken credential into the container.`,
         );
       }
       env[k] = v;

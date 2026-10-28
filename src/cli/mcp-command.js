@@ -90,7 +90,7 @@ function show(args) {
   }
 
   if (servers.length === 0) {
-    console.log(`  ${C.dim}None declared. This machine lends no MCP capacity.${C.reset}\n`);
+    console.log(`  ${C.dim}None declared. This machine shares no MCP capacity.${C.reset}\n`);
     console.log(`  Declare one by writing ${C.cyan}${MCP_CONFIG_FILE}${C.reset}:\n`);
     console.log(`${C.dim}    {
       "servers": [
@@ -131,12 +131,12 @@ function show(args) {
   console.log(runtimeLine(runtime));
   const enabled = servers.filter((s) => s.enabled).length;
   const advertising = runtime.ok ? enabled : 0;
-  console.log(`  Lending:   ${advertising ? `${C.green}${advertising} server(s)${C.reset}` : `${C.yellow}nothing${C.reset}`}`);
+  console.log(`  Sharing:   ${advertising ? `${C.green}${advertising} server(s)${C.reset}` : `${C.yellow}nothing${C.reset}`}`);
   if (!runtime.ok && enabled > 0) {
-    console.log(`\n${C.yellow}Declared but not served.${C.reset} ${C.dim}A rented MCP server only ever runs in a`);
+    console.log(`\n${C.yellow}Declared but not served.${C.reset} ${C.dim}A shared MCP server only ever runs in a`);
     console.log(`container — there is no unsandboxed fallback, on purpose.${C.reset}`);
   }
-  console.log(`\n${C.dim}Renters reach these through your node. Nothing listens on a port.${C.reset}`);
+  console.log(`\n${C.dim}Callers reach these through your node. Nothing listens on a port.${C.reset}`);
   console.log(`${C.dim}To use tools OTHER agents offer:${C.reset} ${C.cyan}aile agents${C.reset}`);
   console.log(`${C.dim}To give an agent aile's own tools instead:${C.reset} ${C.cyan}claude mcp add --transport http aile https://api.aile.sh/mcp${C.reset}\n`);
 }
@@ -212,7 +212,7 @@ async function test(args) {
   if (result.protocolVersion) console.log(`${C.dim}MCP ${result.protocolVersion}${C.reset}`);
 
   if (result.tools.length === 0) {
-    console.log(`\n${C.yellow}It exposes no tools.${C.reset} ${C.dim}A renter would get an empty toolbox.${C.reset}\n`);
+    console.log(`\n${C.yellow}It exposes no tools.${C.reset} ${C.dim}A caller would get an empty toolbox.${C.reset}\n`);
     return;
   }
 
@@ -225,8 +225,8 @@ async function test(args) {
 
   // What the renter actually gets, said plainly. A coding agent in a throwaway
   // box is useful and limited, and a lender should know which before listing it.
-  console.log(`\n${C.dim}That is what a renter would see. The container is destroyed when the`);
-  console.log(`session ends, so nothing a renter does persists between calls.${C.reset}\n`);
+  console.log(`\n${C.dim}That is what a caller would see. The container is destroyed when the`);
+  console.log(`session ends, so nothing a caller does persists between calls.${C.reset}\n`);
 }
 
 export async function mcpCommand(args) {
@@ -248,7 +248,7 @@ export async function mcpCommand(args) {
 /**
  * Run ONE attended (`transport: "agent"`) job in a fresh agent process.
  *
- *   aile mcp answer --job job.json --lender mcpl_x --timeout 90
+ *   aile mcp answer --job job.json --sharer mcpl_x --timeout 90
  *     --allow-env LEND_MODEL -- claude -p --output-format text
  *
  * This never talks to Aile and holds no credential: the lender's agent keeps
@@ -266,7 +266,7 @@ async function answer(args) {
   if (command.length === 0 || typeof command[0] !== "string") {
     fail(
       "No agent command.",
-      "aile mcp answer --job <file|-> [--lender <id>] [--timeout <s>] [--max-bytes <n>] "
+      "aile mcp answer --job <file|-> [--sharer <id>] [--timeout <s>] [--max-bytes <n>] "
       + "[--allow-env A,B] [--keep-home] -- <agent-cmd> [args...]",
     );
   }
@@ -278,7 +278,7 @@ async function answer(args) {
     fail(e.message, "Pass the `job` object from await_mcp_work as a file, or pipe it with --job -.");
   }
   try {
-    checkJobForLender(job, args.lender || null);
+    checkJobForLender(job, args.sharer || args.lender || null);
   } catch (e) {
     fail(e.message);
   }
@@ -310,7 +310,7 @@ async function answer(args) {
   try {
     result = await runAttendedJob({
       job,
-      lenderId: args.lender || null,
+      lenderId: args.sharer || args.lender || null,
       command,
       timeoutMs,
       maxAnswerBytes,

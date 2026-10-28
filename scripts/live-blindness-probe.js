@@ -1,10 +1,10 @@
 /**
  * Live blindness probe.
  *
- * The unit tests prove the node cannot read buyer traffic against a stub. This
+ * The unit tests prove the node cannot read caller traffic against a stub. This
  * proves it against the deployed server and a real provider, on the real
  * network: it runs a genuine relay node, taps every byte the node hands to (and
- * receives from) the WebSocket, then asserts a canary prompt and the buyer's API
+ * receives from) the WebSocket, then asserts a canary prompt and the caller's API
  * key appear nowhere in that capture.
  *
  * The tap is at the socket, not in the agent's own logging — the agent is the
@@ -59,7 +59,7 @@ ws.onmessage = (ev) => {
 };
 
 console.log(`node ${getNodeId()} connected to ${config.serverUrl}`);
-console.log("issuing a buyer request carrying a canary prompt…");
+console.log("issuing a caller request carrying a canary prompt…");
 
 const res = await fetch(`${config.serverUrl}/v1/chat/completions`, {
   method: "POST",
@@ -85,7 +85,7 @@ const checks = [
   ["provider actually answered (capture is meaningful)", reachedProvider],
   ["bytes actually crossed the node", forwarded.length > 0],
   ["canary prompt absent from relayed bytes", !forwarded.includes(Buffer.from(CANARY_PROMPT)) && !asLatin1.includes(CANARY_PROMPT)],
-  ["buyer API key absent from relayed bytes", !asLatin1.includes(CANARY_KEY)],
+  ["caller API key absent from relayed bytes", !asLatin1.includes(CANARY_KEY)],
   ["'Authorization' header absent from relayed bytes", !/authorization:/i.test(asLatin1)],
   ["no cleartext HTTP request line", !/POST \/v1\/chat\/completions HTTP/.test(asLatin1)],
 ];

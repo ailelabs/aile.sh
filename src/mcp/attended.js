@@ -158,6 +158,7 @@ export function buildChildEnv({ allowEnv = [], workdir, job, keepHome = false } 
   }
   env.AILE_MCP_JOB_ID = job.jobId;
   env.AILE_MCP_LENDER = job.lenderId || "";
+  env.AILE_MCP_SHARER = env.AILE_MCP_LENDER; // the new name; the old one stays for agents that read it
   env.AILE_MCP_WORKDIR = workdir;
   if (keepHome) {
     if (process.env.HOME !== undefined) env.HOME = process.env.HOME;

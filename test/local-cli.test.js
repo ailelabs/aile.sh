@@ -221,7 +221,7 @@ describe("aile local setup", () => {
     const { code, all } = await run(["local", "setup", "--yes", "--engine", "ollama", "--model", "qwen/qwen3-8b"], { data });
     expect(code).toBe(0);
     expect(all).toContain("It answers");
-    expect(all).toContain("Lending local/qwen/qwen3-8b");
+    expect(all).toContain("Sharing local/qwen/qwen3-8b");
     expect(all).toContain("aile login");
     expect(readConfig(data)).toMatchObject({ localEnabled: true, localEngine: "ollama", localModels: "qwen/qwen3-8b" });
   });
@@ -235,7 +235,7 @@ describe("aile local setup", () => {
     expect(code).toBe(0);
     expect(all).toContain("Using your own llama-server");
     expect(all).toContain("It answers");
-    expect(all).toContain("Lending local/meta-llama/llama-3.2-1b-instruct");
+    expect(all).toContain("Sharing local/meta-llama/llama-3.2-1b-instruct");
     const cfg = readConfig(data);
     expect(cfg).toMatchObject({ localEnabled: true, localEngine: "llamacpp", localModels: "meta-llama/llama-3.2-1b-instruct" });
     const manifest = JSON.parse(fs.readFileSync(path.join(data, "local.json"), "utf8"));

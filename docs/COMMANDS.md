@@ -77,10 +77,9 @@ A route set with `--route` goes with its key and the tools it was given to:
 refresh keeps it on those tools for that key and takes it out of them for
 another (`refresh --no-route` takes it out for good). `--no-route`, or a
 `--model` of your own, on some tools takes it out of those only; the rest keep
-it. Taking it out gives a tool back the model the route replaced (Claude Code's
-`ANTHROPIC_MODEL` and haiku slot, Codex's `model`), or none if it had none, and
-leaves a model you changed yourself since. A different route for only some of
-the tools holding one is refused until you name the rest.
+it. Taking it out gives a tool back the model the route replaced, and leaves a
+model you changed yourself since. A different route for only some of the tools
+holding one is refused until you name the rest.
 
 `aile setup --remove [tool…]` puts every file back as it was and deletes the
 shortcuts. Removing every tool also forgets the key on this machine, and
@@ -219,7 +218,7 @@ it and the machine enrols again as a new donor.
 
 ---
 
-## Lending
+## Sharing
 
 ### connect
 
@@ -253,6 +252,14 @@ echo "$KEY" | aile connect groq --key -
 Without a terminal and without `--key`, the client declines rather than hanging
 on a stdin nobody is writing to.
 
+The CLI links the providers most sharers use; the dashboard and the MCP link
+tools reach every provider the server supports. Linking the same API key again
+updates that account (*Reconnected*) and keeps its nodeless setting unless you
+pass `--nodeless` or `--no-nodeless`. After a link the client names the next
+step: `aile start` for a node-backed account, `aile test <n>` for a nodeless
+one (its models are not tested at link), and `--nodeless` for a provider only
+Aile can serve, such as Cloudflare Workers AI.
+
 > [!NOTE]
 > **Several accounts of one provider**
 >
@@ -271,12 +278,17 @@ aile accounts
 aile accounts --json
 ```
 
-A machine lending only a self-hosted model will say "no accounts" here and point
+Each account shows its **route**: `this machine`, `another of your machines`,
+`Direct` (nodeless), or `no route` (no node up and Direct off). The route says
+how a request would reach the provider, not what is on sale; the line under it
+counts the account's models as listed, untested, failed or can't sell.
+
+A machine sharing only a self-hosted model will say "no accounts" here and point
 you at `aile capacity`. A local model is capacity, but it is not an account.
 
 ### capacity
 
-Everything this machine lends, separated by kind, with the privacy difference
+Everything this machine shares, separated by kind, with the privacy difference
 between them spelled out.
 
 ```bash
@@ -365,13 +377,13 @@ aile nodeless 1 off
 >
 > With nodeless on, turning your node off no longer stops the account. Only
 > `aile nodeless <n> off` does. `on` is refused for a subscription by the CLI, not
-> the relay; the web dashboard can turn it on. See [Nodeless](https://aile.sh/docs/lend/nodeless).
+> the relay; the web dashboard can turn it on. See [Nodeless](https://aile.sh/docs/share/nodeless).
 
 ### rates
 
 What you charge, and what you will not serve. You set only a margin: a multiplier
 on each model's published list price, `0` (free) to `1` (list). Margins are per
-**(lender, model)**, never per account. Two keys for one provider share one price
+**(sharer, model)**, never per account. Two keys for one provider share one price
 sheet, which is why no `rates` command takes an account number.
 
 ```bash
@@ -413,12 +425,12 @@ aile disconnect 2 --yes
 
 ### local
 
-Download a model, run it on this machine, and lend it. Or lend a model server you
+Download a model, run it on this machine, and share it. Or share a model server you
 already run (vLLM, LM Studio, anything speaking the OpenAI API). See
-[Self-hosted models](https://aile.sh/docs/lend/local).
+[Self-hosted models](https://aile.sh/docs/share/local).
 
 ```bash
-aile local setup                        # one command: engine, model, test, lend
+aile local setup                        # one command: engine, model, test, share
 aile local                              # what is set up, and what each model sells as
 aile local models [query]               # models that download and sell, and which fit here
 aile local pull qwen/qwen3-8b           # download one: a curated id or an Ollama tag
@@ -427,9 +439,9 @@ aile local list                         # what is downloaded
 aile local run <model> "a prompt"       # talk to it; no prompt opens a chat
 aile local rm <model>                   # delete one
 aile local install [ollama|llamacpp]    # install an engine on its own
-aile local on                           # offer it to buyers
-aile local --off                        # stop lending it; the endpoint is remembered
-aile local http://127.0.0.1:1234        # lend a server you already run, and turn it on
+aile local on                           # offer it to callers
+aile local --off                        # stop sharing it; the endpoint is remembered
+aile local http://127.0.0.1:1234        # share a server you already run, and turn it on
 ```
 
 | Flag | What it does |
@@ -437,13 +449,13 @@ aile local http://127.0.0.1:1234        # lend a server you already run, and tur
 | `--engine <ollama\|llamacpp>` | Which engine runs the model. Default: Ollama if it is here, else llama.cpp. |
 | `--model <id>` | `setup` without the model menu. |
 | `--quant <name>` | A specific build, for example `Q8_0`. Default: 4-bit (`Q4_K_M`). |
-| `--ctx <tokens>` | Context window. Default: the `localContext` setting (8192). |
-| `--accel <cuda\|vulkan\|cpu>` | Which llama.cpp build to install. Default: picked from your GPU. |
-| `--yes` | No questions: installs, downloads and lends with the defaults. |
+| `--ctx <tokens>` | Context window, at least 2048. Default: the `localContext` setting (8192). |
+| `--accel <cuda\|vulkan\|cpu>` | Which llama.cpp build to install. Default: picked from your GPU. `--cpu` is `--accel cpu`. |
+| `--yes` | No questions: installs, downloads and shares with the defaults. |
 | `--start`, `--no-start` | After `setup`, start serving, or not, without asking. |
 | `--keep-base` | `rm` keeps the Ollama download an alias was made from. |
-| `--off` | Stop lending the local model. |
-| `--endpoint <url>` | The same as `aile local <url>`: sets the endpoint and turns lending on. |
+| `--off` | Stop sharing the local model. |
+| `--endpoint <url>` | The same as `aile local <url>`: sets the endpoint and turns sharing on. |
 
 A model sells only under an id with a published list price. The curated models
 are saved under that id (Ollama's `llama3.1:8b` becomes
@@ -453,7 +465,7 @@ from the server's own price check. Any other model runs here but may not sell.
 The endpoint is validated before it is saved and constrained to **loopback or LAN
 addresses**. A public value would turn the node into an open proxy.
 
-Buyers send `local/<model>`. The relay strips `local/`, so your endpoint sees the
+Callers send `local/<model>`. The relay strips `local/`, so your endpoint sees the
 id it advertised.
 
 > [!WARNING]
@@ -465,8 +477,8 @@ id it advertised.
 
 ### mcp
 
-Lend an MCP server running on this machine, declared in `mcp-servers.json` next
-to your config. See [Lend via MCP](https://aile.sh/docs/lend/mcp).
+Share an MCP server running on this machine, declared in `mcp-servers.json` next
+to your config. See [Share via MCP](https://aile.sh/docs/share/mcp).
 
 ```bash
 aile mcp              # what is declared, and whether it can run
@@ -475,13 +487,13 @@ aile mcp test <id>    # start it here and list its tools
 aile mcp path         # where mcp-servers.json lives
 ```
 
-Each rented session runs in its own throwaway container. With no sandbox there is
-no lending: there is no unsandboxed fallback.
+Each session a caller opens runs in its own throwaway container. With no sandbox there is
+no sharing: there is no unsandboxed fallback.
 
 > [!NOTE]
 > **Using other agents' tools, or giving an agent aile's, is something else**
 >
-> `aile mcp` lends *your* MCP servers to the network. To **use** tools other agents
+> `aile mcp` shares *your* MCP servers to the network. To **use** tools other agents
 > offer, run [`aile agents`](#agents). To let an agent use models, other agents' tools
 > and your balance itself, connect it to aile's remote MCP server:
 >
@@ -552,7 +564,10 @@ aile wallet --json
 
 Your account's wallet is custodial: its private key lives in the wallet
 provider's enclave, and `aile wallet` only ever reads it. A balance that cannot be
-read shows as unknown, never as `$0`.
+read shows as unknown, never as `$0`. While anything is owed for usage it also
+shows **Owed** and **Spendable**, the figure a withdrawal is checked against; with
+sharing earnings not yet paid out it shows **Incoming**. See
+[Getting paid](https://aile.sh/docs/share/payouts).
 
 #### wallet own
 
@@ -585,25 +600,25 @@ than 2%.
 
 ---
 
-## Buying
+## Calling
 
-### lenders
+### sharers
 
-Who is lending, and what they charge. Aliased as `market`.
+Who is sharing, and what they charge. Aliased as `market`.
 
 ```bash
-aile lenders
-aile lenders --model gpt-5.2
-aile lenders --max-price 8
+aile sharers
+aile sharers --model gpt-5.2
+aile sharers --max-price 8
 ```
 
 | Flag | What it does |
 |---|---|
-| `--model <m>` | Show what each lender would charge for this model. |
+| `--model <m>` | Show what each sharer would charge for this model. |
 | `--max-price <n>` | Under this many dollars per million tokens, both directions. |
 | `--verified` | Attested subscriptions only. |
 | `--provider <id>` | Offering that provider. |
-| `--seller <id>` | One seller, whichever of their machines is free. |
+| `--seller <id>`, `--sharer <id>` | One sharer, whichever of their machines is free. |
 | `--node <id>` | One specific machine. |
 | `--min-served <n>` | With a track record of at least this many requests. |
 | `--free`, `--free-only` | With capacity free this second. |
@@ -622,7 +637,7 @@ says so.
 > **Five of these have a header twin**
 >
 > `--max-price`, `--verified`, `--provider`, `--seller` and `--node` map to
-> `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-lender` and
+> `x-aile-max-price`, `x-aile-verified`, `x-aile-provider`, `x-aile-sharer` and
 > `x-aile-node`, so a choice you make here is one you can act on in a request. See
 > [Headers](https://aile.sh/docs/reference/headers). **`--seller` is the person; `--node` is the box.**
 
@@ -634,7 +649,7 @@ and `codex`. `--model` here and `aile price` still take bare ids.
 
 ### price
 
-What one request would cost, at each lender's rate. Aliased as `quote`. Sends
+What one request would cost, at each sharer's rate. Aliased as `quote`. Sends
 nothing.
 
 ```bash
@@ -647,7 +662,7 @@ aile price gpt-5.2 --in 3000
 |---|---|
 | `--max-tokens <n>`, `--max <n>` | Price the next request at this output ceiling. |
 | `--in <n>`, `--in-tokens <n>` | Assume this many input tokens. |
-| `--lender <id>` | One seller. |
+| `--sharer <id>` | One sharer (`--lender` still works). |
 | `--node <id>` | One machine. |
 
 Output is priced at the `max_tokens` your request **authorises**, not at the reply
@@ -661,16 +676,16 @@ priced at, and a route that sends no cap (codex) is refused.
 
 ### spend
 
-What each lender has cost you.
+What each sharer has cost you.
 
 ```bash
 aile spend
 aile spend --json
 ```
 
-Counted from your own served requests, so a lender who was cheap but timed out a
+Counted from your own served requests, so a sharer who was cheap but timed out a
 third of the time looks worse here than any listing can show. Keyed on the
-lender's **handle**, not their machine, so their history follows them across boxes
+sharer's **handle**, not their machine, so their history follows them across boxes
 and cannot be shed by re-enrolling a node.
 
 ### chat
@@ -680,7 +695,7 @@ another agent offers instead, see [`agents`](#agents).
 
 ```bash
 aile chat "explain this error" --model claude/claude-sonnet-5
-git diff | aile chat - --model codex/gpt-5.5 --system "review this"
+git diff | aile chat - --model codex/gpt-5.6-sol --system "review this"
 aile chat "hi" --model <model> --max-tokens 800
 aile chat "hi" --model <model> --anthropic      # Anthropic's format (/v1/messages)
 aile chat "hi" --model <model> --pay own      # from your own wallet, no account needed
@@ -704,7 +719,7 @@ per call and needs the balance.
 ### agents
 
 Find tools other agents offer, and call one at its flat price per call. This is
-the counterpart of [`mcp`](#mcp), which lends *your* tools; for an AI model, use
+the counterpart of [`mcp`](#mcp), which shares *your* tools; for an AI model, use
 [`chat`](#chat).
 
 ```bash
@@ -799,13 +814,13 @@ install; off a terminal it names the command instead of running an unattended
 
 ```bash
 aile help                 # every command, grouped
-aile help lenders         # one command: examples and details
-aile lenders --help       # the same
+aile help sharers         # one command: examples and details
+aile sharers --help       # the same
 aile -h
 ```
 
 Help runs nothing: `aile start --help` does not start a node, and
-`aile lenders --help` makes no network call.
+`aile sharers --help` makes no network call.
 
 ### version
 
