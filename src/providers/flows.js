@@ -407,6 +407,21 @@ function pick(obj, dotted) {
 }
 
 /**
+ * A verification link answered as a root-relative path (OpenCode's Console says
+ * `/console/device?user_code=…`) resolved against the endpoint that answered it,
+ * so the lender is shown, and the browser opens, a whole URL. Anything else is
+ * passed through as given. Mirrors the server's lib/linkFlows.ts.
+ */
+function absoluteVerificationUri(uri, initiateUrl) {
+  if (typeof uri !== "string" || !uri.startsWith("/") || uri.startsWith("//")) return uri;
+  try {
+    return new URL(uri, new URL(initiateUrl).origin).href;
+  } catch {
+    return uri;
+  }
+}
+
+/**
  * Perform one described request (`initiate` or `poll`) from a `deviceStyle`.
  *
  * Returns the raw Response, not a parsed body: kilocode carries its
@@ -487,7 +502,10 @@ async function deviceFlow(provider, { openBrowser, log, nonce }) {
     device = {
       device_code: pick(env, m.deviceCode),
       user_code: pick(env, m.userCode),
-      verification_uri: pick(env, m.verificationUri),
+      verification_uri: absoluteVerificationUri(
+        pick(env, m.verificationUri),
+        resolveTemplate(style.initiate.url, vars, { url: true }),
+      ),
       expires_in: pick(env, m.expiresIn),
     };
     if (!device.device_code) throw new Error("Device authorization returned no code");
@@ -520,6 +538,8 @@ async function deviceFlow(provider, { openBrowser, log, nonce }) {
     if (!res.ok) throw new Error(`Device authorization failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
     device = await res.json();
     vars.deviceCode = device.device_code;
+    device.verification_uri_complete = absoluteVerificationUri(device.verification_uri_complete, initiateUrl);
+    device.verification_uri = absoluteVerificationUri(device.verification_uri, initiateUrl);
   }
 
   const verifyUrl = device.verification_uri_complete || device.verification_uri || o.authorizeDeviceUrl;

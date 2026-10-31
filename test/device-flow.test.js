@@ -431,3 +431,43 @@ describe("what every device flow shows the lender", () => {
     } finally { s.stop(); }
   });
 });
+
+// ---------------------------------------------------------------------------
+// OpenCode Console: one device flow behind both opencode and opencode-go
+// ---------------------------------------------------------------------------
+
+const OPENCODE = {
+  "deviceStyle.initiate.url": "/console/auth/device/code",
+  "deviceStyle.poll.url": "/console/auth/device/token",
+};
+
+describe("OpenCode Console", () => {
+  /** The Console's own answers: a root-relative link, then a 400 while pending. */
+  function stub() {
+    return stubProvider({
+      "/console/auth/device/code": () => Response.json({
+        device_code: "dc-oc", user_code: "OC-1234",
+        verification_uri_complete: "/console/device?user_code=OC-1234",
+        expires_in: 600, interval: 5,
+      }),
+      "/console/auth/device/token": (n) => (n === 1
+        ? Response.json({ error: "authorization_pending" }, { status: 400 })
+        : Response.json({ access_token: "st-oc", refresh_token: "rt-oc", expires_in: 2591999 })),
+    });
+  }
+
+  for (const id of ["opencode", "opencode-go"]) {
+    it(`${id}: opens the Console link as a whole URL and waits out a 400 pending`, async () => {
+      const s = stub();
+      try {
+        redirect(id, s.base, OPENCODE);
+        const r = run(id);
+        const tokens = await r.done;
+        expect(r.opened).toEqual([`${s.base}/console/device?user_code=OC-1234`]);
+        expect(tokens.accessToken).toBe("st-oc");
+        expect(s.calls[0].json).toEqual({ client_id: "opencode-cli", supports_org_scope: true });
+        expect(s.calls.at(-1).json).toMatchObject({ device_code: "dc-oc", client_id: "opencode-cli" });
+      } finally { s.stop(); }
+    });
+  }
+});

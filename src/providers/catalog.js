@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 30 providers.
+ * 32 providers.
  */
 
 export const PROVIDERS = [
@@ -516,6 +516,88 @@ export const PROVIDERS = [
       "deviceCodeUrl": "https://auth.meta.com/oidc/device/authorization/",
       "tokenUrl": "https://auth.meta.com/oidc/device/token/",
       "userAgent": "muse-code/1.0.2"
+    }
+  },
+  {
+    "id": "opencode",
+    "name": "OpenCode",
+    "flow": "device",
+    "oauth": {
+      "userAgent": "opencode/latest/2.1.4/cli",
+      "pollInterval": 5000,
+      "deviceStyle": {
+        "initiate": {
+          "url": "https://opencode.ai/console/auth/device/code",
+          "method": "POST",
+          "encoding": "json",
+          "body": {
+            "client_id": "opencode-cli",
+            "supports_org_scope": true
+          }
+        },
+        "poll": {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "encoding": "json",
+          "body": {
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": "@deviceCode",
+            "client_id": "opencode-cli"
+          }
+        },
+        "map": {
+          "deviceCode": "device_code",
+          "userCode": "user_code",
+          "verificationUri": "verification_uri_complete",
+          "expiresIn": "expires_in"
+        },
+        "oauthErrors": true,
+        "tokenField": "access_token",
+        "refreshField": "refresh_token",
+        "expiresField": "expires_in",
+        "intervalMs": 5000
+      }
+    }
+  },
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "flow": "device",
+    "oauth": {
+      "userAgent": "opencode/latest/2.1.4/cli",
+      "pollInterval": 5000,
+      "deviceStyle": {
+        "initiate": {
+          "url": "https://opencode.ai/console/auth/device/code",
+          "method": "POST",
+          "encoding": "json",
+          "body": {
+            "client_id": "opencode-cli",
+            "supports_org_scope": true
+          }
+        },
+        "poll": {
+          "url": "https://opencode.ai/console/auth/device/token",
+          "method": "POST",
+          "encoding": "json",
+          "body": {
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": "@deviceCode",
+            "client_id": "opencode-cli"
+          }
+        },
+        "map": {
+          "deviceCode": "device_code",
+          "userCode": "user_code",
+          "verificationUri": "verification_uri_complete",
+          "expiresIn": "expires_in"
+        },
+        "oauthErrors": true,
+        "tokenField": "access_token",
+        "refreshField": "refresh_token",
+        "expiresField": "expires_in",
+        "intervalMs": 5000
+      }
     }
   },
   {
