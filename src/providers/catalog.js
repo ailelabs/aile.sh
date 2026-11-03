@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 32 providers.
+ * 34 providers.
  */
 
 export const PROVIDERS = [
@@ -333,6 +333,24 @@ export const PROVIDERS = [
     }
   },
   {
+    "id": "inferhub",
+    "name": "InferHub",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.inferhub.dev",
+      "verifyUrl": "https://api.inferhub.dev/v1/models",
+      "prefix": "sk-airo-",
+      "keyUrl": "https://inferhub.dev/dashboard"
+    },
+    "transport": {
+      "auth": {
+        "combined": true,
+        "header": "Authorization",
+        "scheme": "bearer"
+      }
+    }
+  },
+  {
     "id": "kilocode",
     "name": "Kilo Code",
     "flow": "device",
@@ -639,6 +657,24 @@ export const PROVIDERS = [
     "name": "Raycast",
     "flow": "paste",
     "oauth": {}
+  },
+  {
+    "id": "surplus",
+    "name": "Surplus Intelligence",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.surplusintelligence.ai",
+      "verifyUrl": "https://api.surplusintelligence.ai/v1/payments/balance",
+      "prefix": "inf_",
+      "keyUrl": "https://www.surplusintelligence.ai/app/buy/quickstart"
+    },
+    "transport": {
+      "auth": {
+        "combined": true,
+        "header": "Authorization",
+        "scheme": "bearer"
+      }
+    }
   },
   {
     "id": "together",

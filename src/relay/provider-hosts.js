@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 259 hosts.
+ * 263 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -72,6 +72,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.inceptionlabs.ai",
   "api.inference.net",
   "api.inference.wandb.ai",
+  "api.inferhub.dev",
   "api.kie.ai",
   "api.kilo.ai",
   "api.kimi.com",
@@ -123,6 +124,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.siliconflow.com",
   "api.stepfun.ai",
   "api.stepfun.com",
+  "api.surplusintelligence.ai",
   "api.sync.so",
   "api.synthetic.new",
   "api.together.xyz",
@@ -214,6 +216,7 @@ export const PROVIDER_HOSTS = new Set([
   "inference.do-ai.run",
   "inference.liquid.ai",
   "inference.poolside.ai",
+  "inferhub.dev",
   "integrate.api.nvidia.com",
   "kenari.id",
   "llamagate.ai",
@@ -265,6 +268,7 @@ export const PROVIDER_HOSTS = new Set([
   "www.meta.ai",
   "www.perplexity.ai",
   "www.searchapi.io",
+  "www.surplusintelligence.ai",
   "www.udio.com",
   "yolo-auto.com",
   "yuanbao.tencent.com",
