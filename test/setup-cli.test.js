@@ -35,6 +35,10 @@ const scratch = (tag) => {
 };
 
 let stub;
+const K1 = () => ({
+  id: "k1", prefix: MINTED.slice(0, 16),
+  aliases: [{ name: "aile/auto", auto: true, targets: [] }, { name: "fast", description: "quick answers first", targets: [] }],
+});
 beforeAll(() => {
   const calls = [];
   const server = Bun.serve({
@@ -55,6 +59,7 @@ beforeAll(() => {
           ],
         });
       }
+      if (url.pathname.startsWith("/v1/models/")) return Response.json({ id: url.pathname.slice("/v1/models/".length) }, { status: stub.modelRowStatus ?? 200 });
       if (url.pathname === "/v1/messages/count_tokens") {
         const k = req.headers.get("x-api-key");
         if ([GOOD, MINTED, GRANTED, OTHER].includes(k)) return Response.json({ input_tokens: 1 });
@@ -70,9 +75,7 @@ beforeAll(() => {
       }
       if (url.pathname === "/keys" && req.method === "GET") {
         if (!/^Bearer ail_/.test(req.headers.get("authorization") || "")) return Response.json({ success: false, message: "no" }, { status: 401 });
-        return Response.json({ success: true, data: { keys: [
-          { id: "k1", prefix: MINTED.slice(0, 16), aliases: [{ name: "aile/auto", auto: true, targets: [] }, { name: "fast", targets: [] }] },
-        ] } });
+        return Response.json({ success: true, data: { keys: stub.keys ?? [K1()] } });
       }
       if (url.pathname === "/keys" && req.method === "POST") {
         if (!/^Bearer ail_/.test(req.headers.get("authorization") || "")) return Response.json({ success: false, message: "no" }, { status: 401 });
@@ -91,11 +94,15 @@ beforeAll(() => {
         if (stub.polls < 2) return Response.json({ success: true, data: { status: "pending", interval: 0.01 } }, { status: 202 });
         return Response.json({ success: true, data: { status: "approved", key: { secret: GRANTED, id: "k2", prefix: "x", name: "y" }, renter: { id: "acct-b", email: "b@example.com" } } });
       }
+      if (url.pathname === "/catalog/auto") {
+        if (stub.catalogStatus === 404) return Response.json({ success: false, message: "Not found" }, { status: 404 });
+        return Response.json({ success: true, data: stub.catalog }, { status: stub.catalogStatus });
+      }
       if (url.pathname === "/health") return Response.json({ success: true, data: { ok: true } });
       return Response.json({ success: false, message: "not found" }, { status: 404 });
     },
   });
-  stub = { url: `http://127.0.0.1:${server.port}`, calls, polls: 0, oldServer: false, revoked: [], stop: () => server.stop(true) };
+  stub = { url: `http://127.0.0.1:${server.port}`, calls, polls: 0, oldServer: false, revoked: [], keys: null, catalog: { version: "t", enabled: true, names: [] }, catalogStatus: 200, stop: () => server.stop(true) };
 });
 
 afterAll(() => {
@@ -399,7 +406,7 @@ describe("keys change, accounts change, and uninstall", () => {
 });
 
 describe("the route setup remembers", () => {
-  const ROUTE = "aile/auto";
+  const ROUTE = "team/auto";
   const sc = (m, tool = "claude") => path.join(m.bin, process.platform === "win32" ? `${tool}aile.cmd` : `${tool}aile`);
   const manifestOf = (m) => readJ(path.join(m.data, "integrations.json"));
   const both = ["setup", "claude", "codex", "--mode", "both"];
@@ -727,5 +734,402 @@ describe("the browser key grant", () => {
     // Nothing opened: an old relay would have approved a LOGIN and rotated the token.
     expect(opened).toBe(false);
     stub.oldServer = false;
+  });
+});
+
+describe("aile/auto and aile/auto-claude", () => {
+  const sc = (m, tool = "claude") => path.join(m.bin, process.platform === "win32" ? `${tool}aile.cmd` : `${tool}aile`);
+  const manifestOf = (m) => readJ(path.join(m.data, "integrations.json"));
+  const envOf = (m) => readJ(m.p(".claude", "settings.json")).env;
+  const codexToml = (m) => fs.readFileSync(m.p(".codex", "config.toml"), "utf8");
+  const codexModel = (m) => codexToml(m).match(/^model = .*/m)?.[0] ?? null;
+  const seedCodex = (m, text = 'model = "o3"\n') => {
+    fs.mkdirSync(m.p(".codex"), { recursive: true });
+    fs.writeFileSync(m.p(".codex", "config.toml"), text);
+  };
+  const signedIn = (extra = {}) => machine({ config: { renterToken: `ail_${"a".repeat(48)}`, ...extra } });
+  /** `keyUntouched: {was, from}` also checks that no key was made, asked for or saved: config.buyerKey is still `was`. */
+  const nothingWritten = (m, keyUntouched = null) => {
+    expect(fs.existsSync(path.join(m.data, "integrations.json"))).toBe(false);
+    expect(fs.existsSync(sc(m))).toBe(false);
+    expect(fs.existsSync(sc(m, "codex"))).toBe(false);
+    if (keyUntouched) {
+      expect(readJ(path.join(m.data, "config.json")).buyerKey).toBe(keyUntouched.was);
+      expect(stub.calls.slice(keyUntouched.from).some((c) => (c.method === "POST" && c.path === "/keys") || c.path.startsWith("/auth/device"))).toBe(false);
+    }
+  };
+  /** Runs with the stub's state set, and puts it back. */
+  const withStub = async (set, fn) => {
+    const was = { keys: stub.keys, catalog: stub.catalog, catalogStatus: stub.catalogStatus, modelRowStatus: stub.modelRowStatus };
+    Object.assign(stub, set);
+    try { return await fn(); } finally { Object.assign(stub, was); }
+  };
+  const k1With = (extra) => [{ ...K1(), ...extra }];
+
+  it("--auto alone is Claude Code only, with no checklist", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "--auto", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(fs.readFileSync(sc(m), "utf8")).toContain("aile/auto");
+    expect(fs.existsSync(sc(m, "codex"))).toBe(false);
+    expect(res.out).toContain("Claude Code only");
+    expect(manifestOf(m).route).toEqual({ name: "aile/auto", prefix: describeKey(GOOD), tools: ["claude"] });
+  });
+
+  it("with Codex named too, Claude Code takes the name and Codex keeps its own model", async () => {
+    const m = machine();
+    seedCodex(m);
+    const res = await run(m, ["setup", "claude", "codex", "--auto", "--mode", "both", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(envOf(m)).toMatchObject({ ANTHROPIC_MODEL: "aile/auto", ANTHROPIC_DEFAULT_HAIKU_MODEL: "aile/auto" });
+    expect(codexToml(m)).toContain('model_provider = "aile"');
+    expect(codexModel(m)).toBe('model = "o3"');
+    expect(codexToml(m)).not.toContain("aile/auto");
+    expect(fs.readFileSync(sc(m, "codex"), "utf8")).not.toContain("aile/auto");
+    expect(res.out).toContain("keeps its own model: aile/auto does not work on Codex");
+    expect(res.out).toContain("aile login");
+    expect(manifestOf(m).route.tools).toEqual(["claude"]);
+  });
+
+  it("without Claude Code in the run there is nothing to give the name to: refused, nothing written", async () => {
+    for (const tail of [["codex", "--auto"], ["codex", "--route", "aile/auto"], ["opencode", "--auto"]]) {
+      const m = machine();
+      const from = stub.calls.length;
+      const res = await run(m, ["setup", ...tail, "--key", GOOD, "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("Claude Code is the only tool");
+      nothingWritten(m, { was: undefined, from });
+    }
+  });
+
+  it("that refusal is made before a key is made, approved in a browser, replaced or saved", async () => {
+    const refused = async (m, tail, was) => {
+      const from = stub.calls.length;
+      const res = await run(m, ["setup", ...tail, "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("Claude Code is the only tool");
+      nothingWritten(m, { was, from });
+      return res;
+    };
+    // Signed in with no key yet: none is minted. Signed out: nobody is sent to a browser.
+    expect((await refused(signedIn(), ["codex", "--auto"], undefined)).out).not.toContain("aile login");
+    expect((await refused(machine(), ["codex", "--auto"], undefined)).out).toContain("aile login");
+    // A saved key stays the saved key, whether a new one or another is asked for.
+    await refused(signedIn({ buyerKey: GOOD }), ["codex", "--auto", "--new-key"], GOOD);
+    await refused(signedIn({ buyerKey: GOOD }), ["codex", "--auto", "--key", OTHER], GOOD);
+    // `aile setup refresh` decides once, before it asks for a key or writes a group.
+    const m = machine();
+    expect((await run(m, ["setup", "opencode", "--key", GOOD, "--yes"])).code).toBe(0);
+    const res = await run(m, ["setup", "refresh", "--auto", "--key", OTHER]);
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("Claude Code is the only tool");
+    expect(readJ(path.join(m.data, "config.json")).buyerKey).toBe(GOOD);
+  });
+
+  it("Codex alone takes the name when the key it will use saves a route of that name", async () => {
+    const m = signedIn({ buyerKey: MINTED });
+    const res = await run(m, ["setup", "codex", "--auto", "--mode", "both", "--yes"]);
+    expect(res.code).toBe(0);
+    expect(codexModel(m)).toBe('model = "aile/auto"');
+    expect(manifestOf(m).route.tools).toEqual(["codex"]);
+  });
+
+  it("a refresh with the name does not stop at a group that has no Claude Code", async () => {
+    const m = machine();
+    expect((await run(m, ["setup", "claude", "--key", GOOD, "--yes"])).code).toBe(0);
+    expect((await run(m, ["setup", "opencode", "--key", GOOD, "--yes"])).code).toBe(0);
+    const res = await run(m, ["setup", "refresh", "--route", "aile/auto", "--key", OTHER]);
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("only tool");
+    expect(fs.readFileSync(sc(m), "utf8")).toContain("aile/auto");
+    expect(readJ(m.p(".local", "share", "opencode", "auth.json"))["opencode-aile"].key).toBe(OTHER);
+  });
+
+  it("aile/auto-claude goes to Claude Code the same way", async () => {
+    const m = machine();
+    expect((await run(m, ["setup", "claude", "codex", "--route", "aile/auto-claude", "--mode", "both", "--key", GOOD, "--yes"])).code).toBe(0);
+    expect(envOf(m).ANTHROPIC_MODEL).toBe("aile/auto-claude");
+    expect(codexToml(m)).not.toContain("aile/auto-claude");
+  });
+
+  it("a route of that name saved on the key goes to Codex too, with no catalog look", async () => {
+    const m = signedIn();
+    const from = stub.calls.length;
+    const res = await run(m, ["setup", "claude", "codex", "--route", "aile/auto", "--mode", "both", "--yes"]);
+    expect(res.code).toBe(0);
+    expect(codexModel(m)).toBe('model = "aile/auto"');
+    expect(manifestOf(m).route.tools).toEqual(["claude", "codex"]);
+    expect(res.out).not.toContain("keeps its own model");
+    expect(stub.calls.slice(from).some((c) => c.path === "/catalog/auto")).toBe(false);
+  });
+
+  it("signed in, a key without that route keeps Codex off it, and finds the key by its prefix when it has no id here", async () => {
+    await withStub({ keys: k1With({ aliases: [{ name: "fast", targets: [] }] }) }, async () => {
+      const m = signedIn();
+      const res = await run(m, ["setup", "claude", "codex", "--route", "aile/auto", "--mode", "both", "--yes"]);
+      expect(res.code).toBe(0);
+      expect(res.out).not.toContain("no route named");
+      expect(res.out).toContain("keeps its own model");
+      expect(res.out).not.toContain("aile login");
+      expect(codexToml(m)).not.toContain("aile/auto");
+    });
+    await withStub({ keys: k1With({ id: "elsewhere", prefix: `${GOOD.slice(0, 16)}…`, aliases: [{ name: "aile/auto" }] }) }, async () => {
+      const m = signedIn({ buyerKey: GOOD });
+      const res = await run(m, ["setup", "claude", "codex", "--route", "aile/auto", "--key", GOOD, "--mode", "both", "--yes"]);
+      expect(res.code).toBe(0);
+      expect(codexModel(m)).toBe('model = "aile/auto"');
+    });
+  });
+
+  it("a key pinned to one provider is refused the name, unless it saves a route of that name", async () => {
+    await withStub({ keys: k1With({ aliases: [], filters: { provider: "codex" } }) }, async () => {
+      const m = signedIn();
+      const res = await run(m, ["setup", "claude", "--auto", "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("limited to provider codex");
+      nothingWritten(m);
+    });
+    await withStub({ keys: k1With({ filters: { provider: "codex" } }) }, async () => {
+      const m = signedIn();
+      expect((await run(m, ["setup", "claude", "--auto", "--yes"])).code).toBe(0);
+      expect(fs.readFileSync(sc(m), "utf8")).toContain("aile/auto");
+    });
+  });
+
+  it("the server's catalog can turn the name down: switched off and older servers are refused, a fault is accepted", async () => {
+    // Signed in, with a key that saves no route of that name: nothing else could serve it.
+    const bare = k1With({ aliases: [] });
+    await withStub({ keys: bare, catalog: { version: "t", enabled: false, names: [] } }, async () => {
+      const m = signedIn();
+      const res = await run(m, ["setup", "claude", "--auto", "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("switched off");
+      nothingWritten(m);
+    });
+    await withStub({ keys: bare, catalogStatus: 404 }, async () => {
+      const m = signedIn();
+      const res = await run(m, ["setup", "claude", "--auto", "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("does not offer");
+      nothingWritten(m);
+    });
+    await withStub({ keys: bare, catalogStatus: 500 }, async () => {
+      const m = signedIn();
+      expect((await run(m, ["setup", "claude", "--auto", "--yes"])).code).toBe(0);
+      expect(fs.readFileSync(sc(m), "utf8")).toContain("aile/auto");
+    });
+  });
+
+  it("with the key's routes unread, a server that turns the name down is a warning: a saved route of that name still serves", async () => {
+    for (const set of [{ catalogStatus: 404 }, { catalog: { version: "t", enabled: false, names: [] } }]) {
+      await withStub(set, async () => {
+        const m = machine();
+        const res = await run(m, ["setup", "claude", "--auto", "--key", GOOD, "--yes"]);
+        expect(res.code).toBe(0);
+        expect(res.out).toContain("still works");
+        expect(fs.readFileSync(sc(m), "utf8")).toContain("aile/auto");
+      });
+    }
+  });
+
+  it("signed out, a key that cannot take the name is warned about, from that key's own model list", async () => {
+    await withStub({ modelRowStatus: 404 }, async () => {
+      const from = stub.calls.length;
+      const m = machine();
+      const res = await run(m, ["setup", "claude", "--auto", "--key", GOOD, "--yes"]);
+      expect(res.code).toBe(0);
+      expect(res.out).toContain("may not take aile/auto");
+      expect(stub.calls.slice(from).some((c) => c.path === "/v1/models/aile/auto" && c.headers.authorization === `Bearer ${GOOD}`)).toBe(true);
+    });
+    const res = await run(machine(), ["setup", "claude", "--auto", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("may not take");
+  });
+
+  it("the name survives a key change on refresh", async () => {
+    const m = machine();
+    expect((await run(m, ["setup", "claude", "--mode", "both", "--auto", "--key", GOOD, "--yes"])).code).toBe(0);
+    const res = await run(m, ["setup", "refresh", "--key", OTHER]);
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("left out");
+    // It is said, once, that the name now means aile's own table on the new key.
+    expect(res.out.match(/Route aile\/auto kept/g)?.length).toBe(1);
+    expect(envOf(m).ANTHROPIC_MODEL).toBe("aile/auto");
+    expect(envOf(m).ANTHROPIC_AUTH_TOKEN).toBe(OTHER);
+    expect(manifestOf(m).route.prefix).toBe(describeKey(OTHER));
+  });
+
+  it("--no-route gives back the model it replaced, and --remove the file", async () => {
+    const m = machine();
+    const settings = { env: { ANTHROPIC_MODEL: "claude-opus-4" } };
+    fs.mkdirSync(m.p(".claude"), { recursive: true });
+    fs.writeFileSync(m.p(".claude", "settings.json"), JSON.stringify(settings));
+    expect((await run(m, ["setup", "claude", "--auto", "--mode", "both", "--key", GOOD, "--yes"])).code).toBe(0);
+    expect(envOf(m).ANTHROPIC_MODEL).toBe("aile/auto");
+    expect((await run(m, ["setup", "claude", "--no-route", "--mode", "both", "--key", GOOD, "--yes"])).code).toBe(0);
+    expect(envOf(m).ANTHROPIC_MODEL).toBe("claude-opus-4");
+    expect((await run(m, ["setup", "--remove", "--yes"])).code).toBe(0);
+    expect(readJ(m.p(".claude", "settings.json"))).toEqual(settings);
+  });
+
+  it("an old record of the name on Codex is taken off it by a refresh", async () => {
+    const m = machine();
+    seedCodex(m);
+    expect((await run(m, ["setup", "claude", "codex", "--mode", "both", "--key", GOOD, "--route", "team/auto", "--yes"])).code).toBe(0);
+    const swap = (f) => fs.writeFileSync(f, fs.readFileSync(f, "utf8").replaceAll("team/auto", "aile/auto"));
+    swap(m.p(".codex", "config.toml"));
+    swap(m.p(".claude", "settings.json"));
+    swap(path.join(m.data, "integrations.json"));
+    expect(manifestOf(m).route).toMatchObject({ name: "aile/auto", tools: ["claude", "codex"] });
+    expect((await run(m, ["setup", "refresh", "--key", GOOD])).code).toBe(0);
+    expect(codexModel(m)).toBe('model = "o3"');
+    expect(envOf(m).ANTHROPIC_MODEL).toBe("aile/auto");
+    expect(manifestOf(m).route.tools).toEqual(["claude"]);
+  });
+
+  it("contradictions are refused, and --model of the name stays off Codex", async () => {
+    const m = machine();
+    for (const flag of [["--route", "fast"], ["--no-route"]]) {
+      const res = await run(m, ["setup", "claude", "--auto", ...flag, "--key", GOOD, "--yes"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("contradict");
+    }
+    nothingWritten(m);
+    const res = await run(m, ["setup", "claude", "codex", "--mode", "both", "--model", "aile/auto", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(envOf(m).ANTHROPIC_MODEL).toBe("aile/auto");
+    expect(codexToml(m)).not.toContain("aile/auto");
+    expect(res.out).toContain("keeps its own model");
+  });
+
+  it("a dry run writes nothing and says Codex keeps its model", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "claude", "codex", "--auto", "--dry-run", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Dry run");
+    expect(res.out).toContain("keeps its own model");
+    nothingWritten(m);
+    expect(fs.existsSync(m.p(".codex", "config.toml"))).toBe(false);
+  });
+
+  // The interactive offer's row (`description`, else the generic note) needs a terminal, which the
+  // spawned CLI lacks, so it is covered by reading the code; the plan line is covered here.
+  it("shows the route's description in the plan", async () => {
+    const m = signedIn();
+    const res = await run(m, ["setup", "claude", "--route", "fast", "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("quick answers first");
+  });
+
+  it("a dry run reads the key it was given, not the saved one, and never a --new-key", async () => {
+    const rowA = { id: "kA", prefix: GOOD.slice(0, 16), aliases: [] };
+    const rowB = { id: "kB", prefix: `${OTHER.slice(0, 16)}…`, aliases: [{ name: "fast", targets: [] }, { name: "aile/auto", targets: [] }] };
+    await withStub({ keys: [rowA, rowB] }, async () => {
+      const m = signedIn({ buyerKey: GOOD });
+      // B has the route, the saved key does not: the real run is with B.
+      expect((await run(m, ["setup", "claude", "--route", "fast", "--key", OTHER, "--dry-run", "--yes"])).code).toBe(0);
+      // And B's saved aile/auto is what Codex would take.
+      const codex = await run(m, ["setup", "claude", "codex", "--auto", "--key", OTHER, "--dry-run", "--yes"]);
+      expect(codex.code).toBe(0);
+      expect(codex.out).not.toContain("keeps its own model");
+      expect(codex.out).toContain("Claude Code main and haiku, Codex model");
+      // B pinned to a provider is refused as the real run would.
+      stub.keys = [rowA, { ...rowB, aliases: [], filters: { provider: "codex" } }];
+      const pinned = await run(m, ["setup", "claude", "--auto", "--key", OTHER, "--dry-run", "--yes"]);
+      expect(pinned.code).toBe(1);
+      expect(pinned.out).toContain("limited to provider codex");
+      expect(pinned.out).not.toContain(OTHER);
+      // A new key is a key nobody can look up.
+      const from = stub.calls.length;
+      const fresh = await run(m, ["setup", "claude", "codex", "--auto", "--new-key", "--dry-run", "--yes"]);
+      expect(fresh.code).toBe(0);
+      expect(fresh.out).toContain("keeps its own model");
+      expect(stub.calls.slice(from).some((c) => c.path === "/keys")).toBe(false);
+      // A malformed key is neither used nor shown.
+      const odd = await run(m, ["setup", "claude", "--auto", "--key", "not-a-key", "--dry-run", "--yes"]);
+      expect(odd.code).toBe(0);
+      expect(odd.out).not.toContain("not-a-key");
+    });
+  });
+
+  it("bare --auto says Codex can have the name when the key saves a route of that name", async () => {
+    const saved = await run(signedIn(), ["setup", "--auto", "--yes"]);
+    expect(saved.code).toBe(0);
+    expect(saved.out).toContain("Your key saves a route named aile/auto");
+    expect(saved.out).toContain("aile setup claude codex --auto");
+    expect(saved.out).not.toContain("does not work on Codex");
+    await withStub({ keys: k1With({ aliases: [] }) }, async () => {
+      const bare = await run(signedIn(), ["setup", "--auto", "--yes"]);
+      expect(bare.out).toContain("aile/auto does not work on Codex");
+    });
+  });
+
+  it("--model of the name on Codex looks at the key's routes, and the hint follows what was missing", async () => {
+    const m = signedIn();
+    const from = stub.calls.length;
+    const res = await run(m, ["setup", "codex", "--model", "aile/auto", "--mode", "both", "--yes"]);
+    expect(res.code).toBe(0);
+    expect(stub.calls.slice(from).some((c) => c.method === "GET" && c.path === "/keys")).toBe(true);
+    expect(codexModel(m)).toBe('model = "aile/auto"');
+    expect(res.out).not.toContain("keeps its own model");
+    // Signed in, the key read, no such route: nothing to log in for.
+    await withStub({ keys: k1With({ aliases: [] }) }, async () => {
+      const other = signedIn();
+      const no = await run(other, ["setup", "codex", "--model", "aile/auto", "--mode", "both", "--yes"]);
+      expect(no.out).toContain("keeps its own model");
+      expect(no.out).not.toContain("aile login");
+      expect(codexToml(other)).not.toContain("aile/auto");
+    });
+    // Signed in, the key not in the list: it could not be read, which is not a reason to log in.
+    await withStub({ keys: [] }, async () => {
+      const unread = await run(signedIn(), ["setup", "claude", "codex", "--auto", "--mode", "both", "--yes"]);
+      expect(unread.code).toBe(0);
+      expect(unread.out).toContain("could not be read");
+      expect(unread.out).not.toContain("aile login");
+    });
+  });
+
+  it("the note says what Codex takes when the run gave it a model of its own", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "claude", "codex", "--auto", "--model", "codex/gpt-5.5", "--mode", "both", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("takes codex/gpt-5.5: aile/auto does not work on Codex");
+    expect(res.out).not.toContain("keeps its own model");
+  });
+
+  it("Codex settings that still hold the name are said once, not also called its own model", async () => {
+    const m = machine();
+    seedCodex(m);
+    expect((await run(m, ["setup", "claude", "codex", "--mode", "both", "--key", GOOD, "--route", "team/auto", "--yes"])).code).toBe(0);
+    const swap = (f) => fs.writeFileSync(f, fs.readFileSync(f, "utf8").replaceAll("team/auto", "aile/auto"));
+    swap(m.p(".codex", "config.toml"));
+    swap(path.join(m.data, "integrations.json"));
+    const res = await run(m, ["setup", "codex", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("own settings still use the route aile/auto");
+    expect(res.out).not.toContain("keeps its own model");
+  });
+
+  it("a name kept onto another key says what it means there", async () => {
+    const m = machine();
+    expect((await run(m, ["setup", "claude", "--auto", "--key", GOOD, "--yes"])).code).toBe(0);
+    const res = await run(m, ["setup", "claude", "--key", OTHER, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Route aile/auto kept: on this key it means aile's own table");
+    expect((await run(m, ["setup", "claude", "--key", OTHER, "--yes"])).out).not.toContain("kept");
+  });
+
+  it("aile run and aile env refuse the name for Codex unless the key saves a route of that name", async () => {
+    for (const verb of ["run", "env"]) {
+      const m = machine({ config: { buyerKey: GOOD } });
+      const res = await run(m, [verb, "--model", "aile/auto", "codex"]);
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("does not work on Codex");
+    }
+    const ok = await run(signedIn({ buyerKey: MINTED }), ["env", "--shell", "sh", "--model", "aile/auto", "codex"]);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain("aile/auto");
+    // Claude Code takes it either way.
+    expect((await run(machine({ config: { buyerKey: GOOD } }), ["env", "--shell", "sh", "--model", "aile/auto", "claude"])).code).toBe(0);
   });
 });

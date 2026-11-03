@@ -27,6 +27,8 @@ import { resolveLocalTarget, buildLocalCapability, localStatus } from "../relay/
 import { configCommand } from "./config-command.js";
 import { mcpCommand } from "./mcp-command.js";
 import { cmdChat, cmdBalance, cmdDeposit, cmdPay, cmdAgents } from "./renter-command.js";
+import { cmdKeys, cmdRoute } from "./keys-command.js";
+import { cmdCouncil } from "./council-command.js";
 import { localWalletCommand } from "./localwallet-command.js";
 import { printQr } from "./qr.js";
 import { localCommand } from "./local-command.js";
@@ -78,6 +80,8 @@ const BOOLEAN_FLAGS = new Set([
   "nodeless", "no-nodeless",
   // `aile setup --no-route claude` must not read "claude" as the flag's value.
   "no-route",
+  // `aile setup --auto claude` must not read "claude" as the flag's value.
+  "auto",
   // Same again for the attended-job runner: `aile mcp answer --keep-home --
   // claude -p` must not read "--" (or the command) as the flag's value.
   "keep-home",
@@ -3410,6 +3414,11 @@ try {
     // Tools OTHER AGENTS offer, at a flat price per call — the counterpart of
     // `aile mcp`, which lends yours. Models are `aile chat`.
     case "agents": await cmdAgents(args, renterCtx); break;
+    // Route tools for the calling side: they read the account and spend nothing.
+    case "keys": await cmdKeys(args, renterCtx); break;
+    case "route": await cmdRoute(args, renterCtx); break;
+    // One question to several models, merged. Each is a paid call.
+    case "council": await cmdCouncil(args, renterCtx); break;
     case "config": case "settings": configCommand(args); break;
     case "update": case "upgrade": await cmdUpdate(args); break;
     case "logout": await cmdLogout(args); break;

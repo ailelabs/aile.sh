@@ -4,6 +4,7 @@
  *   aile setup                      pick tools, approve a key in the browser, done
  *   aile setup claude codex         just these
  *   aile setup --all --yes          every tool found, no questions (scripts)
+ *   aile setup --auto               Claude Code on aile/auto
  *   aile setup status               what is set up, and where
  *   aile setup --remove [tool…]     put every file back as it was
  *
@@ -25,7 +26,7 @@
 
 import fs from "node:fs";
 import { loadConfig, saveConfig } from "../relay/config.js";
-import { api, isSecureUrl } from "../api/client.js";
+import { api, ApiError, isSecureUrl } from "../api/client.js";
 import { makeCtx, webOrigin } from "../setup/ctx.js";
 import { TOOLS, getTool, revertTool, printsOnly } from "../setup/tools.js";
 import { detectInvoker } from "../setup/invoker.js";
@@ -77,6 +78,50 @@ function tidy(ctx, p) {
 
 /** The two tools that can be sent through a named route, in place of a model. */
 const isRoutable = (t) => t.id === "claude" || t.id === "codex";
+
+/**
+ * Aile serves these two names on any key, with no route saved. The server refuses them on
+ * /v1/responses, the only API Codex speaks, so they reach Codex only as a route saved under the name.
+ */
+const ZERO_SETUP = new Set(["aile/auto", "aile/auto-claude"]);
+
+/**
+ * The key's row in GET /keys, by id, else by the prefix the server shows (`sk-aile-` and 8 hex,
+ * then an ellipsis): a pasted key has no id here. Null when it cannot be read: not signed in,
+ * offline, an older server, a key made elsewhere.
+ */
+async function keyRowOf({ key, id = null, server, insecure, token }) {
+  if (!token || !key) return null;
+  try {
+    const keys = (await api.listKeys({ serverUrl: server, insecure, token }))?.keys || [];
+    return keys.find((k) => id && k.id === id) || keys.find((k) => k.prefix && key.startsWith(String(k.prefix).replace(/…$/, ""))) || null;
+  } catch { return null; }
+}
+
+/** The key this run will use, when that is known before any key is made or saved: the one given, else the saved one. */
+function knownKey(args, config) {
+  if (args.key === "-" || (!args.key && args["new-key"])) return null;
+  const k = args.key ? cleanKey(args.key) : config.buyerKey;
+  return KEY_RE.test(k || "") ? k : null;
+}
+
+/** What to do when the key's saved routes are unknown, or null when they are known. */
+const unreadClause = (token, routes) =>
+  !token ? "if your key has a route of that name, run aile login and set up again"
+    : !routes ? "this key's routes could not be read, so run this again to check" : null;
+
+/**
+ * Codex can take a zero-setup name only as a route saved under it, and Claude Code is not in the
+ * run. Decided before a key is made or saved, so a refusal writes nothing: the saved key is
+ * looked up as it stands, and no token, a new key or a key not found means no such route.
+ */
+async function refuseCodexOnly({ route, args, config, server, insecure }) {
+  const key = knownKey(args, config);
+  const row = await keyRowOf({ key, server, insecure, token: config.renterToken });
+  if (row?.aliases?.some((a) => a?.name === route)) return;
+  const why = key || !config.renterToken ? unreadClause(config.renterToken, row?.aliases) : "if a key of yours has a route of that name, pass it with --key <key>";
+  fail(`Claude Code is the only tool that takes ${route} without a saved route.`, `aile setup claude --route ${route}${why ? `   (${why})` : ""}`);
+}
 
 /**
  * The tools holding the saved route (`manifest.route.tools`). A record from before the list
@@ -139,9 +184,11 @@ export async function setupCommand(args) {
   }
   // A route name on the key (an auto route, say) to send Claude Code and Codex through, in
   // place of a model. Asked for here, or offered below once the key is known.
-  if (args.route === true) fail("--route needs a route name.", "aile setup claude codex --route aile/auto");
-  let route = args.route ? String(args.route).trim() || null : null;
-  if (route && args["no-route"]) fail("--route and --no-route contradict each other.");
+  if (args.route === true) fail("--route needs a route name.", "aile setup claude --route aile/auto");
+  if (args.auto && args.route) fail("--auto and --route contradict each other.");
+  // --auto is --route aile/auto; with no tools named it means Claude Code alone.
+  let route = args.auto ? "aile/auto" : args.route ? String(args.route).trim() || null : null;
+  if (route && args["no-route"]) fail(`${args.auto ? "--auto" : "--route"} and --no-route contradict each other.`);
 
   // --- which tools -----------------------------------------------------------
   const found = new Map(TOOLS.map((t) => [t.id, t.detect(ctx)]));
@@ -159,6 +206,8 @@ export async function setupCommand(args) {
   } else if (args.all) {
     chosen = TOOLS.filter((t) => !printsOnly(t) && isInstalled(found.get(t.id)));
     if (!chosen.length) fail("None of the tools aile sets up is installed here.", `Install one (for example: ${INSTALL.claude}), or name a tool: aile setup claude`);
+  } else if (args.auto) {
+    chosen = [getTool("claude")];
   } else if (interactive) {
     /**
      * ONE SCREEN, ONE ANSWER. The tools installed here, ticked, each with what
@@ -220,6 +269,12 @@ export async function setupCommand(args) {
   // are the default, because they leave the tools' own commands untouched.
   mode = mode || "shortcut";
 
+  // A name only Codex is left to take is decided before a key is made or saved, so a refusal writes nothing.
+  // (`aile setup refresh` decided once, for all its groups.)
+  if (route && ZERO_SETUP.has(route) && !args.resolvedKey && !chosen.some((t) => t.id === "claude")) {
+    await refuseCodexOnly({ route, args, config, server, insecure });
+  }
+
   const customName = args["shortcut-name"] ? String(args["shortcut-name"]) : null;
   if (customName && !validShortcutName(customName)) fail(`"${customName}" is not a usable command name.`);
 
@@ -235,7 +290,8 @@ export async function setupCommand(args) {
   let keyInfo = null;
   if (needsKey) {
     if (dryRun) {
-      key = config.buyerKey || "sk-aile-<your-key>";
+      // The key given, else the saved one: never validated or saved here, and shown masked.
+      key = knownKey(args, config) || (args["new-key"] ? null : config.buyerKey) || "sk-aile-<your-key>";
     } else if (args.resolvedKey) {
       // `aile setup refresh` resolved the key once for every tool it re-applies.
       ({ key, note: keyNote, info: keyInfo } = args.resolvedKey);
@@ -252,40 +308,82 @@ export async function setupCommand(args) {
   // (`manifest.route = {name, prefix, tools}`). A re-run keeps it, on those tools, while that
   // key is the one in use; a different key, --no-route, or a --model of its own takes it back
   // out of the tools this run names — and only those — since its name is a 400 on a key that
-  // has no such route.
+  // has no such route. aile/auto and aile/auto-claude work on any key, so a different key keeps them.
   const before = loadManifest();
   const saved = before.route || null;
   const holders = routeHolders(before);
   const routable = chosen.some(isRoutable);
   const prefix = key ? describeKey(key) : null;
   const clearing = Boolean(args["no-route"]) || Boolean(args.model);
-  const keep = Boolean(saved) && !route && !clearing && saved.prefix === prefix;
+  const keep = Boolean(saved) && !route && !clearing && (saved.prefix === prefix || ZERO_SETUP.has(saved.name));
+  let keyRow = null;  // this key's row in GET /keys, when signed in and it can be found
+  let routes = null;  // the routes saved on it
+  // Null routes means unknown, and unknown counts as not saved: off Codex costs a re-run, on it every request is a 400.
+  const offCodex = (t, name) => t.id === "codex" && ZERO_SETUP.has(name) && !routes?.some((a) => a?.name === name);
   // The route a tool is sent through, if any.
-  const routeOf = (t) => (!isRoutable(t) ? null : route || (keep && holders.includes(t.id) ? saved.name : null));
+  const routeOf = (t) => {
+    const name = !isRoutable(t) ? null : route || (keep && holders.includes(t.id) ? saved.name : null);
+    return name && offCodex(t, name) ? null : name;
+  };
   const dropped = saved && !route && !clearing && !keep && chosen.some((t) => holders.includes(t.id)) ? saved.name : null;
   if (dropped && !args.quiet) console.log(`  ${C.dim}Route ${dropped} left out: this is not the key it was chosen for.${C.reset}`);
+  // A zero-setup name kept onto another key means aile's own table there, unless that key saves a route of that name.
+  const rekept = keep && saved.prefix !== prefix && ZERO_SETUP.has(saved.name) && chosen.some((t) => holders.includes(t.id)) ? saved.name : null;
+  if (rekept && !args.quiet) console.log(`  ${C.dim}Route ${rekept} kept: on this key it means aile's own table, unless the key saves a route of that name.${C.reset}`);
 
   // Signed in, the key's own routes are on hand: refuse a --route it does not have, or
   // offer its auto routes. A convenience, so any failure (offline, an older server, a key
-  // made elsewhere) just skips it.
+  // made elsewhere) just skips it. A dry run reads the key it was given, never a new one.
   const token = loadConfig().renterToken;
-  const asked = Boolean(args.route && route);
-  if (routable && !dryRun && token && keyInfo?.id && (asked || (!chosen.some(routeOf) && !clearing && interactive))) {
-    let routes = null;
-    try {
-      routes = (await api.listKeys({ serverUrl: server, insecure, token }))?.keys?.find((k) => k.id === keyInfo.id)?.aliases ?? null;
-    } catch { /* offline, an older server: accept as given */ }
-    if (asked && routes && !routes.some((a) => a?.name === route)) {
+  const asked = Boolean(route);
+  // A kept name on Codex needs the same look: it stays there only if this key saves a route of that name.
+  const codexHolds = keep && ZERO_SETUP.has(saved.name) && holders.includes("codex") && chosen.some((t) => t.id === "codex");
+  // So does --model of the name, the third road into Codex's config.
+  const codexModel = ZERO_SETUP.has(String(args.model)) && chosen.some((t) => t.id === "codex");
+  const offer = !dryRun && !asked && !codexHolds && !chosen.some(routeOf) && !clearing && interactive;
+  const lookupKey = dryRun ? knownKey(args, config) : key;
+  if (routable && token && lookupKey && (asked || codexHolds || codexModel || offer)) {
+    keyRow = await keyRowOf({ key: lookupKey, id: dryRun ? null : keyInfo?.id, server, insecure, token });
+    routes = keyRow?.aliases ?? null;
+    if (asked && routes && !ZERO_SETUP.has(route) && !routes.some((a) => a?.name === route)) {
       const names = routes.map((a) => a?.name).filter(Boolean);
       fail(`Your key has no route named "${route}".`, names.length ? `Its routes: ${names.join(", ")}` : `It has none yet — add one at ${keysUrl(ctx)}`);
     }
-    const autos = asked ? [] : routes?.filter((a) => a?.auto === true) || [];
+    const autos = offer ? routes?.filter((a) => a?.auto === true) || [] : [];
     if (autos.length) {
       const pick = await promptChoice(`${C.bold}Point Claude Code and Codex at an auto route?${C.reset}`, [
-        ...autos.map((a) => ({ label: a.name, note: "picks a cheap or strong model per request" })),
+        ...autos.map((a) => ({ label: a.name, note: a.description || "picks a cheap or strong model per request" })),
         { label: "No", note: "keep their own models" },
       ]);
       if (pick !== null && pick < autos.length) route = autos[pick].name;
+    }
+  }
+  // Only for a name this run asked for, never a kept one, so a key rotation is never blocked by these.
+  if (route && ZERO_SETUP.has(route) && !routes?.some((a) => a?.name === route)) {
+    if (!chosen.some((t) => t.id === "claude")) {
+      // (`aile setup refresh` decided this once, before its first group wrote anything.)
+      if (!args.resolvedKey) {
+        const why = unreadClause(token, routes);
+        fail(`Claude Code is the only tool that takes ${route} without a saved route.`, `aile setup claude --route ${route}${why ? `   (${why})` : ""}`);
+      }
+    } else {
+      const pin = keyRow?.filters?.provider;
+      if (pin) fail(`This key is limited to provider ${pin}, and ${route} picks across providers.`, `Use a key without the pin, or --model ${pin}/<model>.`);
+      let table = null;
+      let older = false;
+      try { table = await api.autoCatalog({ serverUrl: server, insecure }); }
+      catch (e) { older = e instanceof ApiError && e.status === 404; }  // offline, a 5xx: accept as given
+      const turnedDown = older ? `${server} does not offer ${route} yet.` : table?.enabled === false ? `${route} is switched off on ${server}.` : null;
+      // With the key's routes unread, a route of that name saved on it may still serve: say so, don't refuse.
+      if (turnedDown && routes) fail(turnedDown, "Name a route or a model: --route <name>, --model <provider>/<model>.");
+      if (turnedDown && !args.quiet) console.log(warnLine(`${turnedDown} A route of that name saved on your key still works.`));
+      // Signed out there is no GET /keys to read a pin from, but the key's own model list leaves off a name it cannot use.
+      if (!routes && !turnedDown && key && !dryRun) {
+        try { await api.modelRow({ model: route, key, serverUrl: server, insecure }); }
+        catch (e) {
+          if (e instanceof ApiError && e.status === 404 && !args.quiet) console.log(warnLine(`This key may not take ${route}: a key limited to one provider, for one, cannot use it.`));
+        }
+      }
     }
   }
   // One name per machine: a different route given to some of the tools holding the saved one
@@ -311,18 +409,23 @@ export async function setupCommand(args) {
     // The route replaces the model for the two tools that talk to a named route; Claude Code's
     // background calls run on its haiku slot, so that points at the route too.
     const toRoute = routeOf(t);
-    const chosenModel = toRoute || (args.model ? String(args.model) : null);
+    const chosenModel = toRoute || (args.model && !offCodex(t, String(args.model)) ? String(args.model) : null);
+    // What was asked of this tool, to say why Codex did not take it.
+    const wanted = route || (keep && holders.includes(t.id) ? saved.name : null) || (args.model ? String(args.model) : null);
     const smallModel = toRoute && t.id === "claude" ? toRoute : null;
     // A tool that held the route and is no longer sent through it gives it back (`stale`).
     const stale = !toRoute && isRoutable(t) && holders.includes(t.id) ? saved.name : null;
-    const plan = { tool: t, config: null, shortcut: null, error: null, conflict: null };
     const wantConfig = t.kinds.includes("config") && (!t.changesDefault || mode !== "shortcut");
     const wantShortcut = t.kinds.includes("shortcut") && (!t.changesDefault || mode !== "default");
     // --mode shortcut leaves the tool's own settings unwritten, so a route there stays (and the
     // tool stays a holder): say so rather than let --no-route look done.
-    if (stale && !wantConfig && t.kinds.includes("config") && !args.quiet) {
+    const staysSet = stale && !wantConfig && t.kinds.includes("config");
+    if (staysSet && !args.quiet) {
       console.log(`  ${C.dim}${t.label}'s own settings still use the route ${stale}; run without --mode shortcut to take it out.${C.reset}`);
     }
+    // `takes`: the model Codex gets in place of the name. A note that says it "keeps" its model while
+    // its settings still use the name (above) would contradict that line, so it is left out then.
+    const plan = { tool: t, config: null, shortcut: null, error: null, conflict: null, takes: chosenModel, offCodex: !staysSet && offCodex(t, wanted) ? wanted : null };
     if (wantConfig) {
       const p = t.plan(ctx, { key, model: chosenModel, smallModel, staleRoute: stale, prior: before.tools[t.id]?.records, models: listed });
       if (!p.ok) plan.error = p.reason;
@@ -355,6 +458,13 @@ export async function setupCommand(args) {
     if (routedWork.length) {
       const where = routedWork.map((p) => (p.tool.id === "claude" ? "Claude Code main and haiku" : "Codex model")).join(", ");
       console.log(`  ${C.dim}route     ${route || saved.name} (${where})${C.reset}`);
+      const about = routes?.find((a) => a?.name === (route || saved.name))?.description;
+      if (about) console.log(`  ${C.dim}          ${about}${C.reset}`);
+    }
+    if (args.auto && !rest.length && !args.all) {
+      console.log(routes?.some((a) => a?.name === route)
+        ? `  ${C.dim}Claude Code only. Your key saves a route named ${route}, which Codex can use: aile setup claude codex --auto${C.reset}`
+        : `  ${C.dim}Claude Code only: aile/auto does not work on Codex.${C.reset}`);
     }
     for (const p of work) {
       console.log(`  ${C.bold}${p.tool.label}${C.reset}`);
@@ -365,6 +475,10 @@ export async function setupCommand(args) {
         console.log(`    config    ${tidy(ctx, e.file)}${e.created ? ` ${C.dim}(new)${C.reset}` : ""}`);
       }
       if (p.conflict) console.log(`    ${C.yellow}note${C.reset}      it ${p.conflict} — replaced, and restored by --remove`);
+      if (p.offCodex) {
+        const why = unreadClause(token, routes);
+        console.log(`    ${C.yellow}note${C.reset}      ${p.takes ? `takes ${p.takes}` : "keeps its own model"}: ${p.offCodex} does not work on Codex${why ? `; ${why}` : ""}`);
+      }
     }
     if (dryRun && !binDir.onPath && work.some((p) => p.shortcut)) {
       console.log(`\n  ${C.yellow}${tidy(ctx, binDir.dir)} is not on your PATH yet.${C.reset} After setup, run:`);
@@ -437,7 +551,7 @@ export async function setupCommand(args) {
   // `aile setup refresh` runs this once per mode group and prints the footer
   // itself, once, for all of them.
   if (!args.noNext) printNext(plans, ctx, { binDir, found });
-  return { plans, binDir, found, ctx, dropped };
+  return { plans, binDir, found, ctx, dropped, rekept };
 }
 
 /** How a tool was found, in a few words for a menu or a table. */
@@ -749,6 +863,11 @@ export async function setupRefresh(args) {
     console.log(`\n  No tool is set up here yet — run ${C.cyan}aile setup${C.reset}.\n`);
     return;
   }
+  // A name only Codex could take is decided here, before a key is made or any group writes.
+  const asked = args.auto ? "aile/auto" : typeof args.route === "string" ? args.route.trim() : null;
+  if (ZERO_SETUP.has(asked) && !tools.some((t) => t.id === "claude")) {
+    await refuseCodexOnly({ route: asked, args, config, server, insecure });
+  }
   console.log(`\n${heading("aile setup refresh", tools.map((t) => getTool(t.id)?.label || t.id).join(", "))}`);
   const got = await getKey({ args, config, server, insecure, ctx, interactive: isInteractive() });
   // Grouped by mode because one run of setup takes one mode for Claude Code
@@ -767,6 +886,8 @@ export async function setupRefresh(args) {
   const done = runs.filter(Boolean);
   const dropped = done.find((r) => r.dropped)?.dropped;
   if (dropped) console.log(`  ${C.dim}Route ${dropped} left out: this is not the key it was chosen for.${C.reset}`);
+  const rekept = done.find((r) => r.rekept)?.rekept;
+  if (rekept) console.log(`  ${C.dim}Route ${rekept} kept: on this key it means aile's own table, unless the key saves a route of that name.${C.reset}`);
   if (done.length) {
     const last = done[done.length - 1];
     printNext(done.flatMap((r) => r.plans), last.ctx, { binDir: last.binDir, found: last.found });
@@ -813,6 +934,13 @@ async function launchRecipe(ours, toolName) {
   const ctx = makeCtx({ serverUrl: server });
   const key = ours.key ? cleanKey(ours.key) : config.buyerKey;
   if (!key) fail("No API key on this machine yet.", "Run `aile setup` once (or pass --key).");
+  // Codex is sent a model, and the zero-setup names are a 400 there unless the key saves a route of that name.
+  if (t.id === "codex" && ZERO_SETUP.has(String(ours.model))) {
+    const row = await keyRowOf({ key, server, insecure: Boolean(ours.insecure), token: config.renterToken });
+    if (!row?.aliases?.some((a) => a?.name === ours.model)) {
+      fail(`${ours.model} does not work on Codex unless your key saves a route of that name.`, `Name another model, or save the route and run: aile setup codex --route ${ours.model}`);
+    }
+  }
   let def = null;
   if (NEEDS_MODEL.has(t.runner) && !ours.model) {
     def = loadManifest().defaultModel || defaultModel(await fetchChatModels({ serverUrl: server, insecure: Boolean(ours.insecure) }));

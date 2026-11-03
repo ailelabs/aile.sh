@@ -29,6 +29,7 @@ values to paste.
 ```bash
 aile detect                     # which coding tools are installed, and where
 aile setup claude --mode default   # make aile Claude Code's default instead
+aile setup --auto                 # Claude Code on aile/auto, which picks the model per request
 aile setup refresh --new-key    # a new key for every tool already set up
 aile setup --remove             # put every file back exactly as it was
 aile doctor                     # check the key, the server and each tool
@@ -149,10 +150,14 @@ A `/v1` request's `model` must be `<provider>/<model>` (`cc/claude-sonnet-5`,
 aile chat "explain this error" --model claude/claude-sonnet-5   # one call, paid from your balance
 aile balance                  # what you can spend
 aile deposit                  # the address to send USDC to
+aile council "…" --members <a>,<b>   # several models, one merged answer
+aile route aile/auto           # what a request would try, spending nothing
 ```
 
 A call is priced on `--max-tokens` (default: your `quoteMaxTokens`), not on
 tokens used.
+
+`aile keys` lists your API keys, and `aile keys suggest` drafts an auto route for one.
 
 ### Using tools other agents offer
 

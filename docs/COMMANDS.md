@@ -65,7 +65,8 @@ rewritten; you get the snippet instead. Every value replaced is recorded.
 | `--new-key` | Mint a new key instead of reusing the saved one. |
 | `--model <id>` | A default model for the tools that take one. |
 | `--models all` | Give Droid and OpenClaw every model, not just Claude and Codex. |
-| `--route <name>` | Point Claude Code (main and haiku models) and Codex at one of your key's routes. Signed in, a route the key lacks is refused. |
+| `--auto` | Point Claude Code at `aile/auto`, which picks a model per request. With no tools named, it sets up Claude Code alone. |
+| `--route <name>` | Point Claude Code (main and haiku models) and Codex at a route saved on your key. Signed in, a route the key lacks is refused. `aile/auto` and `aile/auto-claude` need no saved route; see below. |
 | `--no-route` | Take that route back out of the tools you name, and give them back the models they had. |
 | `--shortcut-name <n>` | Name the shortcut, when setting up one tool. |
 | `--dry-run` | Show what would change. Write nothing. |
@@ -80,6 +81,8 @@ another (`refresh --no-route` takes it out for good). `--no-route`, or a
 it. Taking it out gives a tool back the model the route replaced, and leaves a
 model you changed yourself since. A different route for only some of the tools
 holding one is refused until you name the rest.
+
+**`aile/auto` and `aile/auto-claude`** need no saved route, and any key can use them unless it is limited to one provider. They work on Claude Code, not Codex: Codex keeps its own model, and setup says so. A route saved on your key under one of those names wins, and Codex can use that; setup can only see it when this machine is signed in. Naming only Codex with one of them is refused. Refresh keeps these names when the key changes.
 
 `aile setup --remove [tool…]` puts every file back as it was and deletes the
 shortcuts. Removing every tool also forgets the key on this machine, and
@@ -734,6 +737,62 @@ aile agents use <listing> <tool> --args '{"q":1}' --task "…"   # the tool's ow
 is set by the agent that lists the tool and checked against your cap before your
 own wallet signs anything. The task text and arguments go to another agent, so
 never send a secret you would not show a stranger.
+
+### council
+
+Ask 2 to 4 models one question, and have one more merge the answers and say where they agree and differ. It spends from this machine's API key (there is no `--key`); `aile setup` makes one.
+
+```bash
+aile council "which index?" --members claude/claude-sonnet-5-5,codex/gpt-6.1-sol
+git diff | aile council - --members <a>,<b> --system "review this"
+aile council "…" --members <a>,<b>,<c> --synthesizer <d> --max-tokens 800
+```
+
+Each member and the merge is a separate paid call from your balance, quoted on its `--max-tokens`, not on tokens used. Only calls that served are charged, and the output lists each model's cost and the total. Stopping the command does not stop calls already made.
+
+| Flag | What it does |
+|---|---|
+| `--members <a>,<b>` | 2 to 4 models, each as `<provider>/<model>`. Required. |
+| `--synthesizer <m>` | The model that merges. Default: the first member. |
+| `--max-tokens <n>` | Output ceiling for each member. Default: your `quoteMaxTokens`. |
+| `--synthesizer-max-tokens <n>` | Output ceiling for the merge. Default: twice `--max-tokens`, at most 32,000. |
+| `--system <text>` | A system prompt for the members. |
+| `--temperature <n>` | Members only. |
+| `--deadline <seconds>` | The limit on the whole call, 10 to 110. Default 110. Members get 60% of it and are cut unpaid after that. |
+| `--json` | The result as JSON. |
+
+### keys
+
+Your API keys and their routes, and a draft auto route for one of them. Needs `aile login`.
+
+```bash
+aile keys                       # every key, with its routes
+aile keys suggest               # a draft route for this machine's key
+aile keys suggest --key work    # for another key, by id, name or prefix
+```
+
+`suggest` picks a light, a standard and a heavy model from what is listed, and shows each one's price and facts. It saves nothing: save the route on your key in the dashboard, then use it with `aile setup --route <name>`.
+
+### route
+
+Which models and sharers a request would try, in order, without making it. Nothing is sent or charged. Needs `aile login`.
+
+```bash
+aile route aile/auto
+aile route fast "fix this test" --tier heavy
+aile route aile/auto --tools --format messages --data deny
+```
+
+It takes a route name, `aile/auto`, or `<provider>/<model>`, and shows the tier and why, each target in try order, the sharers removed, the first one tried, and any refusal. It exits 0 when the server planned the request, even if a real one would be refused, and 1 when the server turns down the dry run itself (a bad name, or `aile/auto` on `--format responses` or a key limited to one provider).
+
+| Flag | What it does |
+|---|---|
+| `--key <id, name or prefix>` | Which key. Default: this machine's. |
+| `--format <f>` | `chat` (default), `messages` or `responses`. |
+| `--tier <t>` | Force an auto route's tier: `light`, `standard` or `heavy`. |
+| `--data <d>` | `allow` or `deny`, as `x-aile-data-collection`. |
+| `--tools` | A request that declares a tool. |
+| `--json` | The server's answer as JSON. |
 
 ### balance
 

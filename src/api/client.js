@@ -526,6 +526,20 @@ export const api = {
   revokeKey: ({ id, ...opts }) =>
     call(`/keys/${encodeURIComponent(id)}`, { ...opts, method: "DELETE" }),
 
+  /** The table behind aile/auto and aile/auto-claude, with `enabled`. Public. A 404 is a server from before them. */
+  autoCatalog: (opts = {}) => call("/catalog/auto", { timeoutMs: 8000, ...opts }),
+
+  /** One row of the model list as a buyer key sees it. A zero-setup name that key cannot use is a 404 (a provider pin, for one). */
+  modelRow: ({ model, key, ...opts }) => call(`/v1/models/${model}`, { timeoutMs: 8000, token: key, ...opts }),
+
+  /** A draft auto route for one of the account's keys, by key id. Writes nothing. Needs the account token. */
+  routeSuggestion: ({ key, ...opts }) =>
+    call(`/keys/route-suggestion?key=${encodeURIComponent(key)}`, { timeoutMs: 30_000, ...opts }),
+
+  /** What a request with one of the account's keys would try, by key id. Sends no request and spends nothing. Needs the account token. */
+  routeDryRun: ({ key, model, format = null, headers = null, body = null, ...opts }) =>
+    call("/keys/route-dry-run", { timeoutMs: 30_000, ...opts, method: "POST", body: omitAbsent({ key, model, format, headers, body }) }),
+
   /**
    * The public model list, raw OpenAI shape (`{object, data}`) — no key needed.
    * Used to pick the models a tool that cannot discover them is told about.

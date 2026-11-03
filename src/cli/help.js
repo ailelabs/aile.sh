@@ -35,13 +35,16 @@ export const COMMANDS = [
       ["aile setup --key -", "use an existing key, read from stdin"],
       ["aile setup --new-key", "mint a fresh key instead of reusing the saved one"],
       ["aile setup claude --shortcut-name cc-aile", "choose the shortcut's name"],
-      ["aile setup claude codex --route aile/auto", "send both tools through one of your key's routes"],
+      ["aile setup --auto", "Claude Code on aile/auto: aile picks the model per request"],
+      ["aile setup claude --route aile/auto-claude", "the same, Claude models only"],
+      ["aile setup claude codex --route fast", "send both tools through a route saved on your key"],
       ["aile setup claude codex --no-route", "…and back to their own models"],
       ["aile setup --dry-run", "show what would change, write nothing"],
     ],
     notes: [
       "Not signed in? setup opens your browser to approve an API key — the machine is not signed in and your other machines stay signed in.",
       "Cursor, Cline, Continue, Zed and the VS Code extension keep their settings in the app, so setup prints the three values to paste instead.",
+      "aile/auto and aile/auto-claude need no saved route. They work on Claude Code, not Codex: Codex keeps its own model unless your key has a saved route of that name.",
     ],
   },
   {
@@ -141,6 +144,44 @@ export const COMMANDS = [
       "A flat price per call, set by the agent that lists the tool. For an AI model instead, use `aile chat`.",
       "The task text and arguments go to another agent — never send a secret you would not show a stranger.",
     ],
+  },
+  {
+    name: "council", group: "use", summary: "ask several models one question, and merge the answers",
+    examples: [
+      ["aile council \"which index?\" --members claude/claude-sonnet-5-5,codex/gpt-6.1-sol", "two answers, then the first model merges them"],
+      ["aile council \"…\" --members <a>,<b>,<c> --synthesizer <d>", "another model merges"],
+      ["git diff | aile council - --members <a>,<b> --system \"review this\"", "the question from stdin"],
+      ["aile council \"…\" --members <a>,<b> --max-tokens 800", "a lower ceiling is a lower price"],
+      ["aile council \"…\" --members <a>,<b> --json", "the same, for a script"],
+    ],
+    notes: [
+      "Each member and the merge is a separate paid call from your balance, quoted on its --max-tokens (default: your quoteMaxTokens; the merge: twice that, or --synthesizer-max-tokens), not on tokens used. Only calls that served are charged.",
+      "Name 2 to 4 models as <provider>/<model>. --deadline limits the whole call, 10 to 110 seconds (default 110); members get 60% of it and are cut unpaid after that.",
+      "Stopping this command does not stop calls already made; those that serve are charged.",
+    ],
+  },
+  {
+    name: "keys", group: "use", summary: "your API keys, and a route suggested for one",
+    examples: [
+      ["aile keys", "every key on your account, with its routes"],
+      ["aile keys suggest", "a draft auto route for this machine's key"],
+      ["aile keys suggest --key work", "for another key, by id, name or prefix"],
+      ["aile keys --json", "the same, for a script"],
+    ],
+    notes: ["Needs `aile login`. A suggestion saves nothing: save a route on your key in the dashboard, then `aile setup --route <name>`."],
+  },
+  {
+    name: "route", group: "use", summary: "which models and sharers a request would try, spending nothing",
+    examples: [
+      ["aile route aile/auto", "for a one-line prompt"],
+      ["aile route fast \"fix this test\"", "for this prompt"],
+      ["aile route aile/auto --tools --format messages", "a /v1/messages request that declares tools"],
+      ["aile route fast --tier heavy", "force an auto route's tier: light, standard or heavy"],
+      ["aile route fast --data deny", "with x-aile-data-collection: allow or deny"],
+      ["aile route fast --key work", "on another key, by id, name or prefix"],
+      ["aile route fast --json", "the same, for a script"],
+    ],
+    notes: ["Takes a route name, aile/auto, or <provider>/<model>. --format is chat (default), messages or responses. Needs `aile login`. It sends no request. It exits 0 when the server planned the request, even if a real one would be refused; it exits 1 when the server turns down the dry run itself (a bad name, or aile/auto on --format responses or a key limited to one provider)."],
   },
   {
     name: "balance", group: "wallet", summary: "what you can spend: your account, and your own wallet",

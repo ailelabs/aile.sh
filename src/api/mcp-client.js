@@ -55,6 +55,9 @@ export async function connectMcp({ serverUrl, key = null, insecure = false, time
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res;
+    let text;
+    // The timer runs until the body is read: a keyed session answers its headers at once and
+    // streams the result, so a wait that ends there would never end.
     try {
       res = await fetch(url, {
         method: "POST",
@@ -71,14 +74,14 @@ export async function connectMcp({ serverUrl, key = null, insecure = false, time
         redirect: "manual",
         signal: controller.signal,
       });
+      session = res.headers.get("mcp-session-id") || session;
+      text = await res.text();
     } catch (e) {
       if (e.name === "AbortError") throw new Error(`no response from ${base} after ${timeoutMs}ms`);
       throw new Error(`cannot reach ${base}: ${e.message}`);
     } finally {
       clearTimeout(timer);
     }
-    session = res.headers.get("mcp-session-id") || session;
-    const text = await res.text();
     if (res.status === 401) throw new McpCallError("The server refused the credential for its MCP endpoint.", "unauthorized");
     if (res.status === 404) throw new McpCallError("This server has no MCP endpoint turned on.", "not_found");
     if (message.id === undefined) return null;

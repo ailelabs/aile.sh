@@ -18,6 +18,17 @@ a patch bump fixes something.
 
 ### Added
 
+- `aile setup --auto`: point Claude Code at `aile/auto`, which picks a model per
+  request, with no route saved. `--route aile/auto` and `--route aile/auto-claude`
+  work the same way. Neither name works on Codex, so Codex keeps its own model
+  unless your key has a saved route of that name.
+- `aile keys` lists your API keys and their routes; `aile keys suggest` drafts an
+  auto route for one.
+- `aile route <name> [prompt]`: which models and sharers a request would try,
+  spending nothing.
+- `aile council "<question>"`: ask 2 to 4 models one question and get one merged
+  answer. Each is a paid call.
+- `aile setup --route` shows a route's description.
 - `aile local setup`: lend your own GPU in one command. It reads this machine
   (GPU, memory, free disk), installs an engine if there is none, offers the
   models that fit with their list price, downloads the one you pick, asks it a

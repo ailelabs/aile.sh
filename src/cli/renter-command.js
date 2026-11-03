@@ -482,7 +482,7 @@ export function showQr(args) {
 }
 
 /** The prompt: positional words, or stdin when it is `-` or omitted from a pipe. */
-async function readPrompt(args) {
+export async function readPrompt(args) {
   const words = args._.slice(1);
   if (words.length === 1 && words[0] === "-") return readStdin();
   if (words.length) return words.join(" ");
@@ -498,7 +498,7 @@ async function readStdin() {
   return text;
 }
 
-function intFlag(v, name) {
+export function intFlag(v, name) {
   if (v === undefined || v === null) return null;
   const n = Number(v);
   if (v === true || !Number.isInteger(n) || n <= 0) die(`${name} must be a positive whole number (got "${v}")`);
