@@ -3,12 +3,7 @@
 
 # CLI
 
-`aile.sh` is the client a sharer installs. It signs you in, links provider
-accounts, sets your prices, and runs your machine as a relay node.
-
-Callers do not need it. A caller key and a base URL are enough. It is still useful
-on the calling side for discovery and accounting: `aile sharers`, `aile price` and
-`aile spend` read the same server-side data the marketplace page does.
+`aile.sh` signs you in, links provider accounts, sets your prices and runs your machine as a relay node. Callers do not need it, but `aile sharers`, `aile price` and `aile spend` read the same data the marketplace shows.
 
 ## Install
 
@@ -16,96 +11,61 @@ on the calling side for discovery and accounting: `aile sharers`, `aile price` a
 npm install -g aile.sh
 ```
 
-Bun works too (`bun install -g aile.sh`). Requires **Node 20 or newer**, and
-nothing else.
-
-Uninstalling is `npm uninstall -g aile.sh` plus deleting the data directory.
-Nothing else on the machine is touched.
+Bun works too (`bun install -g aile.sh`). Requires **Node 20 or newer**. Details and uninstall: [Install the CLI](https://aile.sh/docs/share/install).
 
 ## First run
 
 ```bash
 aile login      # sign in, and register this machine
-aile connect    # link an AI account — a menu if you name no provider
+aile connect    # link an AI account; a menu if you name no provider
 aile capacity   # confirm what this machine now shares
 aile start      # run as a relay node
 ```
 
-Bare `aile` on a machine where nothing is set up yet starts a short first-run
-prompt. Once anything is set up (a sign-in, an API key, or a coding tool), it
-shows a few lines: your balance, your coding tools, and what you share (with a
-served count only when some account is served through a machine). Then, in a
-terminal, a menu of likely next steps: arrows or a number, then enter; Esc or `q`
-quits. Off a terminal it prints the summary and exits, so a script never waits on
-it. `aile status` has the detail.
+Bare `aile` on a fresh machine starts a short first-run prompt. Once set up it shows your balance, coding tools and what you share, then a menu of next steps (Esc or `q` quits). Off a terminal it prints the summary and exits.
 
 ## How arguments are parsed
 
-The parser is deliberately small, and has one rule that
-surprises people.
-
 - `--key=value` is always accepted.
-- `--key value` is accepted **unless** the flag is boolean. The boolean flags are
-  `--insecure`, `--reset`, `--path`, `--help`, `--json`, `--paste`, `--browser`,
-  `--off`, `--yes`, `--verified`, `--free`, `--free-only`, `--nodeless`,
-  `--no-nodeless`, `--all`, `--dry-run`, `--new-key`, `--remove`, `--revoke`,
-  `--keep-key`, `--fast`, `--tools`, `--keep-home`, `--debug`, `--anthropic`,
-  `--no-encrypt`, `--qr`, `--no-qr`, `--start`, `--no-start`, `--cpu`, `--force`
-  and `--keep-base`. A value after
-  one of those is read as a positional argument, not as the flag's value.
+- `--key value` is accepted **unless** the flag is boolean. A value after a boolean flag is read as a positional argument. The boolean flags are `--insecure`, `--reset`, `--path`, `--help`, `--json`, `--paste`, `--browser`, `--off`, `--yes`, `--verified`, `--free`, `--free-only`, `--nodeless`, `--no-nodeless`, `--no-route`, `--all`, `--dry-run`, `--new-key`, `--remove`, `--revoke`, `--keep-key`, `--fast`, `--tools`, `--keep-home`, `--debug`, `--anthropic`, `--no-encrypt`, `--qr`, `--no-qr`, `--start`, `--no-start`, `--cpu`, `--force` and `--keep-base`.
 - Everything else collects as positionals.
 
 ## Global options
 
-These work on any command.
-
 | Flag | What it does |
 |---|---|
-| `--server <url>` | Point at a different relay for this one command. Overrides `serverUrl`. |
-| `--insecure` | Permit a plain `http://` server for this one command. Staging only; refused otherwise. `aile start` takes only the saved `allowInsecure`, because the node re-dials for as long as it runs. |
-| `--json` | Machine-readable output. Supported on the read commands. |
+| `--server <url>` | Use a different relay for this command. Overrides `serverUrl`. |
+| `--insecure` | Permit plain `http://` for this command. Staging only. `aile start` takes only the saved `allowInsecure`. |
+| `--json` | Machine-readable output, on the read commands. |
 | `--yes` | Skip confirmations. |
-| `--help`, `-h` | The command overview. After a command (`aile sharers --help`), that command's examples and details. Help never runs the command or touches the network. |
+| `--help`, `-h` | The command overview; after a command, its examples. Never runs the command or touches the network. |
 | `--version`, `-v` | Print the client version. |
 
 ## How output behaves
 
-- **Colour** only on a terminal (or with `FORCE_COLOR`), and never with `NO_COLOR`
-  set.
-- **Marks** (✓ ✗ ❯ ●) where the terminal can draw them, and plain ASCII
-  (`+ x > *`) where it may not, such as the classic Windows console window.
-  `AILE_ASCII=1` forces ASCII anywhere.
-- **Spinners** on network waits, drawn on stderr and only on a terminal: stdout
-  stays clean for a pipe, and a script sees nothing extra. `AILE_NO_SPINNER=1`
-  turns them off.
-- **Tables and menus fit the window**: a long path is shortened with `…` rather
-  than wrapped.
-- **A typo** gets a suggestion (`Unknown command "stup". Did you mean aile
-  setup?`) and exit code 1.
-- **`AILE_DEBUG=1`** prints the full error behind a one-line failure message.
+- Colour only on a terminal (or `FORCE_COLOR`), never with `NO_COLOR`.
+- Marks (✓ ✗ ❯ ●) become ASCII (`+ x > *`) where the terminal cannot draw them (`AILE_ASCII=1` forces it).
+- Spinners go to stderr on a terminal only (`AILE_NO_SPINNER=1` turns them off).
+- A typo gets a suggestion and exit code 1; `AILE_DEBUG=1` prints the full error.
 
 ## Where files live
 
-One directory, owned entirely by the client:
+`%APPDATA%\aile\` on Windows, `~/.aile/` elsewhere (override with `AILE_DATA_DIR`). It holds:
 
-- **Windows**: `%APPDATA%\aile\`
-- **macOS and Linux**: `~/.aile/`
-- Override with `AILE_DATA_DIR`.
-
-It holds `config.json` (permissions `0600`), the machine id, and the node secret.
+- `config.json` (permissions `0600`)
+- the machine id
+- the node secret
 
 > [!NOTE]
 > **Provider credentials are not on your machine**
 >
-> Linked provider tokens are held server-side, because the relay is what terminates
-> TLS with the provider. Nothing in this directory grants access to a provider
-> account. See [What Aile can see](https://aile.sh/docs/concepts/privacy).
+> Linked provider tokens are held server-side. Nothing in this directory grants access to a provider account ([What Aile can see](https://aile.sh/docs/concepts/privacy)).
 
 ## Next
 
 - **[Commands](./COMMANDS.md)**: every command, with its flags
-- **[Configuration](./CONFIGURATION.md)**: every `aile config` key, its default and range
-- **[Environment](./ENVIRONMENT.md)**: the environment variables the client reads
+- **[Configuration](./CONFIGURATION.md)**: every `aile config` key
+- **[Environment](./ENVIRONMENT.md)**: the variables the client reads
 
 ---
 

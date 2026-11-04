@@ -12,27 +12,17 @@ aile config --reset maxConcurrent  # reset just one
 aile config --path                 # print the config file's location
 ```
 
-The file on disk holds **overrides only**: a value equal to the default is
-pruned rather than written. Every read merges your overrides over the current
-defaults, which has two useful consequences: a default that changes in a later
-release reaches you, and an unknown key written by a newer version survives a
-downgrade.
-
-Changes take effect on the next `aile start`.
+The file holds **overrides only**; a value equal to the default is pruned, so a default that changes in a later release reaches you. Changes take effect on the next `aile start`.
 
 ## Where it lives
 
-`config.json`, permissions `0600`, written write-then-rename:
-
-- **Windows**: `%APPDATA%\aile\config.json`
-- **macOS and Linux**: `~/.aile/config.json`
-- Override the whole directory with `AILE_DATA_DIR`.
+`config.json` (permissions `0600`) in `%APPDATA%\aile\` on Windows or `~/.aile/` elsewhere. `AILE_DATA_DIR` overrides the directory.
 
 ## Account
 
 | Key | Default | What it does |
 |---|---|---|
-| `renterToken` | — | Your account token. **Read-only here**: written by `aile login`, cleared by `aile logout`, never settable through `aile config`. |
+| `renterToken` | — | Your account token. **Read-only here**: written by `aile login`, cleared by `aile logout`. |
 | `buyerKey` | — | The API key your coding tools use. **Read-only here**: written by `aile setup`, cleared by `aile setup --remove` once no tool uses it. Kept by `aile config --reset`. |
 
 ## Connection
@@ -40,41 +30,31 @@ Changes take effect on the next `aile start`.
 | Key | Default | Range | What it does |
 |---|---|---|---|
 | `serverUrl` | `https://api.aile.sh` | — | Relay this machine connects to. Also `AILE_SERVER_URL`; `--server` beats both. |
-| `allowInsecure` | `false` | — | Permit plain `http://` to the server. Staging only. The only waiver `aile start` honours: `--insecure` covers one command, not the node's reconnects. |
+| `allowInsecure` | `false` | — | Permit plain `http://` to the server. Staging only. The only waiver `aile start` honours. |
 | `maxConcurrent` | `4` | 1–64 | Streams this machine carries at once. |
 | `autoReconnect` | `true` | — | Reconnect on its own after the link drops. |
 | `reconnectMinMs` | `1000` | 250–60000 | Floor of the reconnect backoff. |
 | `reconnectMaxMs` | `60000` | 1000–3600000 | Ceiling of the reconnect backoff. |
 
-> [!NOTE]
-> **Retired server addresses**
->
-> Known-dead hosts are dropped from `serverUrl` on read rather than dialled, so an
-> old install does not sit retrying an address that no longer exists. If a stale
-> value is the problem, set it explicitly:
-> `aile config serverUrl https://api.aile.sh`.
+Known-dead hosts are dropped from `serverUrl` on read. If a stale value is the problem, set it explicitly: `aile config serverUrl https://api.aile.sh`.
 
 ## Self-hosted
 
-Sharing a model running on your own machine. Off unless you turn it on; see
-[Self-hosted models](https://aile.sh/docs/share/local).
+Off unless you turn it on; see [Self-hosted models](https://aile.sh/docs/share/local).
 
 | Key | Default | What it does |
 |---|---|---|
 | `localEnabled` | `false` | Also share a self-hosted model. |
 | `localEndpoint` | — | OpenAI-compatible base URL. Loopback or LAN addresses only. |
 | `localModels` | — | Comma-separated names to advertise. Blank asks the endpoint. |
-| `localEngine` | `external` | What runs the model: `external` (a server you run), `ollama` or `llamacpp`. Set by `aile local setup`; `aile start` starts a managed engine first. |
+| `localEngine` | `external` | What runs the model: `external` (a server you run), `ollama` or `llamacpp`. Set by `aile local setup`. |
 | `localContext` | `8192` | Context window, in tokens, for models `aile local` downloads. |
-| `localModelDir` | — | Where downloaded models and llama.cpp go. Blank: `%LOCALAPPDATA%\aile\local` on Windows, `~/.aile/local` elsewhere. Must be an absolute path. |
+| `localModelDir` | — | Where downloaded models and llama.cpp go. Blank: `%LOCALAPPDATA%\aile\local` on Windows, `~/.aile/local` elsewhere. Absolute path only. |
 
 > [!WARNING]
 > **Names are forwarded verbatim**
 >
-> Callers send `local/<name>`; Aile strips `local/` and passes the rest to your
-> endpoint unchanged, so the names you advertise must be exactly the names your
-> endpoint answers to. Advertise `llama-3` for an endpoint serving `llama3` and
-> those requests will not resolve.
+> Advertised names must match what your endpoint answers to ([Self-hosted models](https://aile.sh/docs/share/local)).
 
 ## Streams
 
@@ -95,17 +75,16 @@ Sharing a model running on your own machine. Off unless you turn it on; see
 
 | Key | Default | Range | What it does |
 |---|---|---|---|
-| `quoteMaxTokens` | `4096` | 1–1000000 | Output ceiling `aile price` assumes. An estimate only; **never sent** with a request. |
+| `quoteMaxTokens` | `4096` | 1–1000000 | Output ceiling `aile price` quotes on, and the `max_tokens` `aile chat` sends when you pass no `--max-tokens`. |
 
 ## Wallet
 
-Read only by your optional own wallet (`aile wallet own`). Nothing here is sent
-to the server.
+Read only by your optional own wallet (`aile wallet own`). Nothing here is sent to the server.
 
 | Key | Default | Range | What it does |
 |---|---|---|---|
 | `walletNetwork` | `mainnet` | `mainnet`, `devnet` | Solana network your own wallet uses. Env: `AILE_SOLANA_NETWORK`. |
-| `solanaRpc` | *(empty)* | URL | Solana RPC for your own wallet. Empty means the public endpoint, which is rate-limited. Hidden in `aile config` output, because providers put the API key in the URL. Env: `AILE_SOLANA_RPC`. |
+| `solanaRpc` | *(empty)* | URL | Solana RPC for your own wallet. Empty means the rate-limited public endpoint. Hidden in `aile config` output. Env: `AILE_SOLANA_RPC`. |
 | `walletMaxCents` | `50` | 1–100000 | Largest single payment or USDC send your own wallet signs, in US cents. `--max-usd` overrides it for one command. |
 
 ## Output
@@ -113,12 +92,6 @@ to the server.
 | Key | Default | Values | What it does |
 |---|---|---|---|
 | `logLevel` | `info` | `silent`, `error`, `warn`, `info`, `debug` | How much `aile start` prints while running. |
-
-> [!NOTE]
-> **Nothing here widens egress**
->
-> No setting can add a host to the egress allowlist. `localEndpoint` is constrained
-> to loopback and LAN precisely so it cannot become one.
 
 ---
 

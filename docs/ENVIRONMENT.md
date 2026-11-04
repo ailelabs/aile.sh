@@ -3,35 +3,29 @@
 
 # Environment variables
 
-The client reads four variables in normal use. A few more change only how it
-prints, two reach a relay behind Cloudflare Access, and three matter for one
-provider.
+The client reads four variables in normal use; the rest change how it prints, reach a relay behind Cloudflare Access, or matter for one provider.
 
 | Variable | Effect |
 |---|---|
-| `AILE_SERVER_URL` | Default relay server. Overridden by the `serverUrl` config key only if that key is explicitly set, and by `--server` always. |
+| `AILE_SERVER_URL` | Default relay server. Overridden by the `serverUrl` config key if set, and by `--server` always. |
 | `AILE_DATA_DIR` | Override the whole state directory (`config.json`, machine id, node secret). |
 | `AILE_TOKEN` | Account token for `aile login` and `aile register`. The non-interactive path. |
 | `AILE_NO_UPDATE_CHECK` | Set to `1` to silence the "newer version available" notice. `NO_UPDATE_NOTIFIER` and `CI` do the same. |
 
 ## Precedence
 
-For the server address, from weakest to strongest:
+For the server address, weakest to strongest:
 
 
 1. The built-in default, `https://api.aile.sh`.
 2. `AILE_SERVER_URL`.
 3. The `serverUrl` key in `config.json`.
-4. `--server <url>` on the command line.
+4. `--server <url>` on the command line (per command, writes nothing).
 
-
-`--server` is per-invocation and writes nothing, so it is the right way to point
-one command at a staging relay without disturbing the machine's configuration.
 
 ## Non-interactive setup
 
-This is enough to bring up a sharer node in an image or a provisioning script with no
-terminal interaction:
+Enough to bring up a sharer node in an image or provisioning script:
 
 ```bash
 export AILE_TOKEN="…"
@@ -45,20 +39,15 @@ aile start
 > [!TIP]
 > **Keep the key off the process list**
 >
-> `--key -` reads from stdin, so the provider key never appears in `ps` output or
-> in shell history. `--key <value>` is accepted but visible to any process on the
-> box that can read the process table.
+> `--key -` reads stdin, so the key never appears in `ps` or shell history. `--key <value>` is visible to any process that can read the process table.
 
 ## Machine label
 
-By default the client sends this machine's hostname so the approval page can tell
-you which box is asking. To withhold it:
+The client sends this machine's hostname so the approval page can tell you which box is asking. To withhold it:
 
 ```bash
 AILE_NO_MACHINE_LABEL=1 aile login
 ```
-
-The approval page then identifies the request only by its code.
 
 ## Output
 
@@ -76,39 +65,32 @@ Read by `aile local` and, for an engine aile manages, `aile start`.
 
 | Variable | Effect |
 |---|---|
-| `HF_TOKEN` | Hugging Face token, for a gated or private repo. Read from the environment, sent only to huggingface.co, never saved. |
-| `OLLAMA_HOST` | Where Ollama listens, as Ollama itself reads it. `0.0.0.0` is reached on `127.0.0.1`. |
+| `HF_TOKEN` | Hugging Face token for a gated or private repo. Sent only to huggingface.co, never saved. |
+| `OLLAMA_HOST` | Where Ollama listens, as Ollama reads it. `0.0.0.0` is reached on `127.0.0.1`. |
 | `OLLAMA_MODELS` | Ollama's model folder, used for the free-disk check. |
-| `AILE_LLAMA_SERVER_BIN` | Use your own `llama-server` build instead of downloading the pinned one. |
+| `AILE_LLAMA_SERVER_BIN` | Use your own `llama-server` build instead of the pinned download. |
 | `AILE_HF_URL` | A Hugging Face mirror (https). |
 | `AILE_LLAMACPP_URL` | A mirror for the pinned llama.cpp downloads. Each is still checked against its sha256. |
-| `AILE_LOCAL_NO_INSTALL` | Set to `1` to refuse installing Ollama on this machine outright. llama.cpp, which installs nothing system-wide, is unaffected. |
+| `AILE_LOCAL_NO_INSTALL` | Set to `1` to refuse installing Ollama. llama.cpp is unaffected. |
 | `AILE_LOCAL_HW` | JSON that replaces detected hardware, for a GPU the probes miss: `{"vramBytes": 24000000000, "accel": "cuda"}`. |
 
 ## Your own wallet
 
-Read only by your optional own wallet (`aile wallet own`). The first two are the
-environment form of config keys: a value set with `aile config` wins over them, as
-with `AILE_SERVER_URL`.
+Read only by `aile wallet own`. The first two are the environment form of config keys; a value set with `aile config` wins over them.
 
 | Variable | Effect |
 |---|---|
-| `AILE_SOLANA_RPC` | Solana RPC URL, for example `https://solana-mainnet.g.alchemy.com/v2/<key>`. Same as the `solanaRpc` key. |
-| `AILE_SOLANA_NETWORK` | `mainnet` or `devnet`. Same as the `walletNetwork` key. |
-| `AILE_WALLET_PASSPHRASE` | Unlocks your own wallet when it is encrypted without a prompt, for scripts. `--passphrase` does the same for one command. |
+| `AILE_SOLANA_RPC` | Solana RPC URL, for example `https://solana-mainnet.g.alchemy.com/v2/<key>`. Same as `solanaRpc`. |
+| `AILE_SOLANA_NETWORK` | `mainnet` or `devnet`. Same as `walletNetwork`. |
+| `AILE_WALLET_PASSPHRASE` | Unlocks an encrypted own wallet without a prompt, for scripts. `--passphrase` does the same for one command. |
 | `JUPITER_API_KEY` | A Jupiter API key for `aile wallet own swap`, sent only to Jupiter. Optional. |
 | `AILE_JUPITER_URL` | Another Jupiter API base URL (default `https://api.jup.ag`). |
 
-The client reads no `.env` file. To keep an RPC key out of your shell profile, save
-it once with `aile config solanaRpc <url>`: `config.json` is written readable by
-you only, and `aile config` prints the value masked.
+The client reads no `.env` file. To keep an RPC key out of your shell profile, run `aile config solanaRpc <url>`; `config.json` is readable by you only and `aile config` prints the value masked.
 
 ## Cloudflare Access
 
-For a relay you run behind Cloudflare Access. The client sends both as Access's
-service-token headers on every call to the relay, and sends neither unless both
-are set. The public aile.sh relay should never ask for them. They are read from the
-environment only, never from `config.json`.
+For a relay you run behind Cloudflare Access. The client sends both as service-token headers on every call, and neither unless both are set. The public aile.sh relay never asks for them. Environment only, never `config.json`.
 
 | Variable | Effect |
 |---|---|
@@ -117,8 +99,7 @@ environment only, never from `config.json`.
 
 ## GitLab Duo
 
-These are consulted only when linking that one provider, which needs an OAuth client of
-your own:
+Consulted only when linking that provider, which needs an OAuth client of your own:
 
 | Variable | Effect |
 |---|---|
@@ -126,8 +107,7 @@ your own:
 | `GITLAB_DUO_OAUTH_CLIENT_SECRET` | OAuth client secret. |
 | `GITLAB_DUO_BASE_URL` | Base URL for a self-managed GitLab instance. |
 
-Without a client id configured on the relay, GitLab Duo models are hidden from
-`GET /v1/models` rather than advertised and then failing.
+Without a client id configured on the relay, GitLab Duo models are hidden from `GET /v1/models`.
 
 ---
 
