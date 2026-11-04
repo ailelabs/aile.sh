@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-04
+
 ### Removed
 
 - Gemini CLI sign-in is retired, because Google ended it for personal accounts.
@@ -29,10 +31,10 @@ a patch bump fixes something.
 - `aile council "<question>"`: ask 2 to 4 models one question and get one merged
   answer. Each is a paid call.
 - `aile setup --route` shows a route's description.
-- `aile local setup`: lend your own GPU in one command. It reads this machine
+- `aile local setup`: share your own GPU in one command. It reads this machine
   (GPU, memory, free disk), installs an engine if there is none, offers the
   models that fit with their list price, downloads the one you pick, asks it a
-  test question and turns lending on. `--yes --model <id>` does it unattended.
+  test question and turns sharing on. `--yes --model <id>` does it unattended.
 - `aile local models`, `pull`, `list`, `rm`, `run`, `install` and `on`. `pull`
   takes a curated id, any Ollama tag, or any GGUF on Hugging Face
   (`hf.co/<user>/<repo>[:quant]`); `run` talks to a model, once or as a chat.
@@ -87,7 +89,7 @@ a patch bump fixes something.
   Help, prompts and messages use the new words. What the client sends to the
   server does not change, and the node sets `AILE_MCP_SHARER` beside
   `AILE_MCP_LENDER`.
-- A model lists after it passes a test, not after a buyer's request served it.
+- A model lists after it passes a test, not after a caller's request served it.
   `aile check-key` (`retest` and `recheck` still work) only checks the credential.
 - The `aile lenders` and `aile start` wording for a self-hosted model says it is
   listed after it answers a test probe.
@@ -108,7 +110,7 @@ a patch bump fixes something.
   reads again until the server answers. It used to advertise none and earn
   nothing until it next reconnected. A sign-in the server refuses still
   advertises no accounts.
-- A rented MCP server now starts on rootless Podman, rootless Docker and
+- An MCP server called through aile now starts on rootless Podman, rootless Docker and
   a non-default Docker context (Colima, Rancher Desktop), and should on
   Podman on Windows (untested). The container runtime gets its own connection settings (`HOME`,
   `APPDATA`, `XDG_RUNTIME_DIR`, `DOCKER_HOST`, `DOCKER_CONTEXT`,
@@ -135,7 +137,7 @@ a patch bump fixes something.
   existing `~/.codex/config.toml`. They rewrote it with the default (usually
   `0644`), so a file you had made private became readable by other users on
   the machine, with your aile key in it.
-- Ending a rented MCP session no longer pauses the node while Docker (or
+- Ending an MCP session called through aile no longer pauses the node while Docker (or
   Podman) stops its container. Every other stream the node was relaying used
   to wait for that round trip, up to 10 seconds, once per session when several
   ended together.
