@@ -6,7 +6,7 @@
  * dependency: nothing outside this repo can widen the set of hosts a node will
  * dial. Local endpoints are filtered out at generation time.
  *
- * 263 hosts.
+ * 265 hosts.
  */
 
 export const PROVIDER_HOSTS = new Set([
@@ -104,6 +104,7 @@ export const PROVIDER_HOSTS = new Set([
   "api.openvecta.com",
   "api.orcarouter.ai",
   "api.parallel.ai",
+  "api.particle.ai",
   "api.perplexity.ai",
   "api.platform.preferredai.jp",
   "api.poe.com",
@@ -238,6 +239,7 @@ export const PROVIDER_HOSTS = new Set([
   "openrouter.ai",
   "pass.wafer.ai",
   "platform.deepseek.com",
+  "platform.particle.ai",
   "playground.ai.cloudflare.com",
   "portal.qwen.ai",
   "prod.us-east-1.auth.desktop.kiro.dev",
