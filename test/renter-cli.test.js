@@ -458,6 +458,7 @@ describe("aile chat --max-price, and the self-hosted ceiling refusal", () => {
       expect(res.code).not.toBe(0);
       expect(res.all).toContain("local/llama3 is priced by its sharer, so a call must name the most it pays.");
       expect(res.all).toContain("Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2");
+      expect(res.all).toContain("a cost cap on the key (Max cost per request in its Routing settings) counts too, for a model with a published list price.");
       expect(res.all).not.toContain("The request failed");
     } finally { srv.stop(); }
   });
@@ -481,6 +482,46 @@ describe("aile chat --max-price, and the self-hosted ceiling refusal", () => {
     try {
       expect((await chat([], other)).all).toContain("The request failed");
     } finally { other.stop(); }
+  });
+
+  // A quote above the key's cost cap is a 402 with NO payment document; funding or an own wallet changes nothing.
+  const CAP_402 = "the cheapest sharer quotes $0.004100 for this request, above its $0.001000 per-request cost cap (this API key's cost cap); raise the cap or lower max_tokens. You were not charged.";
+
+  it("a cost-cap 402 is reported as a cost-cap problem, not a balance shortfall (--pay balance and auto)", async () => {
+    const srv = aileStub({ chat: () => Response.json({ error: { message: CAP_402 } }, { status: 402 }) });
+    try {
+      for (const pay of ["balance", "auto"]) {
+        const res = await run(["chat", "hi", "--model", "local/llama3", "--pay", pay], { data: dataDir({ serverUrl: srv.url, buyerKey: KEY }) });
+        expect(res.code).not.toBe(0);
+        expect(res.all).toContain("The quote is above your per-request cost cap.");
+        expect(res.all).toContain("per-request cost cap (this API key's cost cap)");
+        expect(res.all).toContain("Raise Max cost per request on your key");
+        expect(res.all).not.toContain("aile deposit");
+        expect(res.all).not.toContain("Not enough balance");
+        expect(res.all).not.toContain("--pay balance.");
+      }
+    } finally { srv.stop(); }
+  });
+
+  it("MUST-NOT: a real balance 402 still gets the deposit advice", async () => {
+    const srv = aileStub({ chat: () => Response.json({ error: { message: "insufficient balance" }, balance: { neededMicros: 5000, spendableMicros: 100 } }, { status: 402 }) });
+    try {
+      const res = await run(["chat", "hi", "--model", "local/llama3", "--pay", "balance"], { data: dataDir({ serverUrl: srv.url, buyerKey: KEY }) });
+      expect(res.code).not.toBe(0);
+      expect(res.all).toContain("Not enough balance");
+      expect(res.all).toContain("aile deposit");
+      expect(res.all).not.toContain("cost cap");
+    } finally { srv.stop(); }
+  });
+
+  it("the cost-cap helper reads the status, the words and a payment document", async () => {
+    const { isCostCapRefusal } = await import("../src/cli/renter-command.js");
+    expect(isCostCapRefusal({ status: 402, body: { error: { message: CAP_402 } } }, CAP_402)).toBe(true);
+    expect(isCostCapRefusal({ status: 400, body: {} }, CAP_402)).toBe(false);
+    expect(isCostCapRefusal({ status: 402, body: { balance: { neededMicros: 1 } } }, CAP_402)).toBe(false);
+    expect(isCostCapRefusal({ status: 402, body: { accepts: [{}] } }, CAP_402)).toBe(false);
+    expect(isCostCapRefusal({ status: 402, body: {} }, "insufficient balance")).toBe(false);
+    expect(isCostCapRefusal(null)).toBe(false);
   });
 
   it("the refusal helper reads the header, the message and the status", async () => {

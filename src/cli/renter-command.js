@@ -83,6 +83,13 @@ export async function cmdChat(args, ctx) {
   let paidWith = key ? "balance" : null;
   let settlement = null;
 
+  // A 402 the key's per-request cost cap raised ("the cheapest sharer quotes $X, above its $Y per-request cost
+  // cap") carries no payment document and is not a balance problem: funds or an own wallet change nothing.
+  if (res.status === 402 && isCostCapRefusal(res, errorText(res.body))) {
+    die(`The quote is above your per-request cost cap. ${errorText(res.body)}`.trim(),
+      "Raise Max cost per request on your key (its Routing settings) or x-aile-max-cost, or lower --max-tokens, which the quote is priced on.");
+  }
+
   if (res.status === 402) {
     const shortfall = res.body && typeof res.body === "object" ? res.body.balance : null;
     const canLocal = pay === "own" || (pay === "auto" && (await hasLocal()));
@@ -122,7 +129,7 @@ export async function cmdChat(args, ctx) {
     const msg = errorText(res.body) || `the server answered ${res.status}`;
     if (isLocalCeilingRefusal(res, msg)) {
       die(`${model} is priced by its sharer, so a call must name the most it pays.`,
-        "Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2");
+        "Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2 — a cost cap on the key (Max cost per request in its Routing settings) counts too, for a model with a published list price.");
     }
     die(`The request failed: ${msg}`, res.status === 401 ? "Your key was refused — `aile setup refresh --new-key` makes a new one." : null);
   }
@@ -169,6 +176,17 @@ export function isLocalCeilingRefusal(res, message = "") {
   const by = res.headers?.get?.("x-aile-refused-by");
   if (typeof by === "string" && by.trim().toLowerCase() === "local-ceiling") return true;
   return /is priced by its sharer/i.test(String(message));
+}
+
+/**
+ * The relay's 402 for a quote above the per-request cost cap (`x-aile-max-cost`, the key's Max cost per
+ * request): its message says "per-request cost cap", and it carries neither a balance figure nor a payment
+ * document, so nothing about it is fixed by funding the account or paying from an own wallet.
+ */
+export function isCostCapRefusal(res, message = "") {
+  if (res?.status !== 402) return false;
+  if (res.body && typeof res.body === "object" && (res.body.balance || res.body.accepts || res.body.x402Version)) return false;
+  return /per-request cost cap/i.test(String(message));
 }
 
 // ---------------------------------------------------------------------------

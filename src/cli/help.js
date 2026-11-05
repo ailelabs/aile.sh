@@ -128,7 +128,7 @@ export const COMMANDS = [
     ],
     notes: [
       "The price is quoted on --max-tokens (default: your quoteMaxTokens setting, the same number `aile price` uses), not on tokens used.",
-      "A local/ (self-hosted) model is priced by its sharer, so a call to one must name the most it pays: --max-price <dollars per million tokens>, or set a ceiling on your key once with `aile keys set --local-max-price 2`.",
+      "A local/ (self-hosted) model is priced by its sharer, so a call to one must name the most it pays: --max-price <dollars per million tokens>, or set a ceiling on your key once with `aile keys set --local-max-price 2` (a cost cap on the key, Max cost per request, counts too for a model with a published list price).",
       "This calls an AI model. To call a tool another agent offers, use `aile agents`.",
       "--pay auto (the default) uses your balance, and your own wallet only when the balance comes up short. A call under the facilitator's minimum ($0.0008) can only be paid from the balance.",
     ],
