@@ -51,6 +51,12 @@ a patch bump fixes something.
   `--model local/<id>` is honoured and says the key needs a self-hosted ceiling.
 - `aile local` no longer says a model with no list price "will not sell". It
   sells once you type a price: `aile rates set local/<id> --in <$> --out <$>`.
+- The refused-self-hosted-call hint, `aile chat --help` and `aile setup --model
+  local/<id>` now say a cost cap on the key (Max cost per request in its Routing
+  settings) also satisfies a self-hosted model's ceiling (for a model with a published list price), as the server accepts.
+- `aile chat` reports a 402 for a quote above the key's cost cap as a cost-cap problem
+  (raise Max cost per request or lower --max-tokens), not as a balance shortfall or a
+  missing payment challenge.
 
 ## [1.3.0] - 2026-11-04
 

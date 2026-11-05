@@ -159,7 +159,8 @@ tokens used.
 
 `aile keys` lists your API keys, and `aile keys suggest` drafts an auto route for one.
 A self-hosted (`local/…`) model is priced by its sharer, so a call to one must name the most
-it pays: `aile chat … --max-price 2`, or `aile keys set --local-max-price 2` once for the key.
+it pays: `aile chat … --max-price 2`, or `aile keys set --local-max-price 2` once for the key (a cost cap on the key, set in its
+Routing settings, counts too for a model with a published list price).
 
 ### Using tools other agents offer
 
