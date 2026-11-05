@@ -33,6 +33,7 @@ import { localWalletCommand } from "./localwallet-command.js";
 import { printQr } from "./qr.js";
 import { localCommand } from "./local-command.js";
 import { ensureEngine, stopManagedEngine } from "../local/engine.js";
+import { parseDollars, usdText } from "../local/sell.js";
 import { setupCommand, runCommand, envCommand, doctorCommand, detectCommand, setupRemove, setupRefresh, toolsSetUp, isInstalled } from "./setup-command.js";
 import { loadManifest } from "../setup/manifest.js";
 import { makeCtx, webOrigin } from "../setup/ctx.js";
@@ -1414,11 +1415,20 @@ async function cmdRates(args) {
 
   const verb = String(args._[1] || "").toLowerCase();
   const model = args._[2] ? String(args._[2]) : null;
+  // `local/<id>` is a SELF-HOSTED model: the write names the raw id exactly (tag and
+  // case kept) with provider `local`, so it lands on that one tag. Anything else
+  // is a provider-served model and sends exactly what it always did.
+  const rawLocal = model !== null ? localModelId(model) : null;
+  if (model !== null && rawLocal === "") die("Which self-hosted model?", "Name it as local/<id>, e.g. `aile rates set local/llama3.1:8b --in 0.2 --out 0.6`.");
+  const target = rawLocal !== null ? { model: rawLocal, provider: "local" } : { model };
+  const shown = rawLocal !== null ? `local/${rawLocal}` : model;
 
-  // Refused here, before anything is sent: the server 400s any dollar price, and
-  // silently dropping the flag would leave a lender believing it took.
-  if (args.in !== undefined || args.out !== undefined) {
-    die("Dollar prices are retired — use --model-margin (0 = free, 1 = list).");
+  // Dollar prices exist for a self-hosted model only. Refused here, before anything
+  // is sent: the server 400s a dollar price on any other model, and silently
+  // dropping the flag would leave a lender believing it took.
+  const dollars = args.in !== undefined || args.out !== undefined || args["cache-read"] !== undefined;
+  if (dollars && !(verb === "set" && rawLocal !== null)) {
+    die("Dollar prices are for self-hosted models only — use --model-margin (0 = free, 1 = list), or name one as local/<id>.");
   }
 
   // --margin is a change, not a subcommand: `aile rates --margin 0.9` reads better
@@ -1432,33 +1442,59 @@ async function cmdRates(args) {
 
   if (verb === "set") {
     if (!model) die("Which model?", "Try `aile rates set claude-opus-5 --model-margin 0.8`.");
+    if (dollars) {
+      // A typed self-hosted price: input and output both, a cache read if wanted.
+      // The cap (3x list), the $1000 maximum and the decimals are the server's to
+      // refuse, and its sentence is shown through callRates.
+      if (args["model-margin"] !== undefined) die("Either a margin or a price, not both.", "Use --model-margin on its own, or --in and --out.");
+      const inUsd = checkDollars(args.in, "--in");
+      const outUsd = checkDollars(args.out, "--out");
+      if (inUsd === undefined || outUsd === undefined) {
+        die("A self-hosted price needs both --in and --out.", `Try \`aile rates set local/${rawLocal} --in 0.2 --out 0.6\` (dollars per million tokens).`);
+      }
+      const cacheReadUsd = checkDollars(args["cache-read"], "--cache-read");
+      await callRates(() => api.setLocalPrice({ model: rawLocal, inUsd, outUsd, cacheReadUsd, ...opts }));
+      console.log(`\n${C.green}Set.${C.reset} ${shown} ${C.dim}now sells at${C.reset} ${C.bold}${usdText(inUsd)} in / ${usdText(outUsd)} out${C.reset}${C.dim} per million tokens`
+        + (cacheReadUsd !== undefined ? `, ${usdText(cacheReadUsd)} for a cache read` : "") + `.${C.reset}`);
+      console.log(`${C.dim}It stays put if the list changes. ${C.reset}${C.cyan}aile rates follow ${shown}${C.reset}${C.dim} goes back to list × your margin.${C.reset}\n`);
+      return;
+    }
     if (args["model-margin"] === undefined) {
-      die("Set what?", "Try `aile rates set <model> --model-margin 0.8` (0 = free, 1 = list).");
+      die("Set what?", rawLocal !== null
+        ? `Try \`aile rates set ${shown} --in 0.2 --out 0.6\`, or \`--model-margin 0.8\` (0 = free, 1 = list).`
+        : "Try `aile rates set <model> --model-margin 0.8` (0 = free, 1 = list).");
     }
     const margin = checkMargin(args["model-margin"], "--model-margin");
-    await callRates(() => api.setModelMargin({ model, margin, ...opts }));
-    console.log(`\n${C.green}Set.${C.reset} ${model} ${C.dim}now sells at${C.reset} ${C.bold}${marginText(margin)}${C.reset}\n`);
+    await callRates(() => api.setModelMargin({ ...target, margin, ...opts }));
+    console.log(`\n${C.green}Set.${C.reset} ${shown} ${C.dim}now sells at${C.reset} ${C.bold}${marginText(margin)}${C.reset}\n`);
+    return;
+  }
+
+  if (verb === "follow") {
+    if (rawLocal === null) die("Which self-hosted model?", "`follow` drops a typed price: name the model as local/<id>, e.g. `aile rates follow local/llama3.1:8b`.");
+    await callRates(() => api.clearLocalPrice({ model: rawLocal, ...opts }));
+    console.log(`\n${C.green}Following the list.${C.reset} ${shown} ${C.dim}sells at its list price × your margin again.${C.reset}\n`);
     return;
   }
 
   if (verb === "clear") {
     if (!model) die("Which model?", "Try `aile rates clear claude-opus-5`.");
-    await callRates(() => api.clearModelMargin({ model, ...opts }));
-    console.log(`\n${C.green}Cleared.${C.reset} ${model} ${C.dim}is back on your global margin.${C.reset}\n`);
+    await callRates(() => api.clearModelMargin({ ...target, ...opts }));
+    console.log(`\n${C.green}Cleared.${C.reset} ${shown} ${C.dim}is back on your global margin.${C.reset}\n`);
     return;
   }
 
   if (verb === "off" || verb === "on") {
     if (!model) die("Which model?", `Try \`aile rates ${verb} claude-opus-5\`.`);
-    await callRates(() => api.setModelDisabled({ model, disabled: verb === "off", ...opts }));
+    await callRates(() => api.setModelDisabled({ ...target, disabled: verb === "off", ...opts }));
     console.log(verb === "off"
-      ? `\n${C.green}Off.${C.reset} ${model} ${C.dim}is hidden from the market and will not be served.${C.reset}\n`
-      : `\n${C.green}On.${C.reset} ${model} ${C.dim}can be served again.${C.reset}\n`);
+      ? `\n${C.green}Off.${C.reset} ${shown} ${C.dim}is hidden from the market and will not be served.${C.reset}\n`
+      : `\n${C.green}On.${C.reset} ${shown} ${C.dim}can be served again.${C.reset}\n`);
     return;
   }
 
   if (verb) {
-    die(`Unknown: aile rates ${verb}`, "Try `aile rates` on its own, or `set` / `clear` / `on` / `off`.");
+    die(`Unknown: aile rates ${verb}`, "Try `aile rates` on its own, or `set` / `clear` / `follow` / `on` / `off`.");
   }
 
   // ---- read ----------------------------------------------------------------
@@ -1498,9 +1534,74 @@ async function cmdRates(args) {
   console.log(`  ${C.dim}Per-unit models with a published list sell at list × margin by default; ${C.reset}`
     + `${C.cyan}aile rates off <model>${C.reset}${C.dim} stops one.${C.reset}`);
 
+  const hasLocal = printSelfHosted(p.local);
+
   console.log(`\n${C.dim}Change it:  ${C.reset}${C.cyan}aile rates --margin 0.9${C.reset}`);
   console.log(`${C.dim}One model:  ${C.reset}${C.cyan}aile rates set <model> --model-margin 0.8${C.reset}`);
-  console.log(`${C.dim}Stop one:   ${C.reset}${C.cyan}aile rates off <model>${C.reset}\n`);
+  console.log(`${C.dim}Stop one:   ${C.reset}${C.cyan}aile rates off <model>${C.reset}`);
+  if (hasLocal) {
+    console.log(`${C.dim}Self-hosted: ${C.reset}${C.cyan}aile rates set local/<id> --in 0.2 --out 0.6${C.reset}${C.dim}  (dollars per million tokens)${C.reset}`);
+    console.log(`${C.dim}Follow list: ${C.reset}${C.cyan}aile rates follow local/<id>${C.reset}`);
+  }
+  console.log();
+}
+
+/**
+ * The raw id of a model written `local/<id>` (one leading `local/`, any case; the
+ * rest kept EXACTLY: case and an ollama tag are part of the name), `null` for any
+ * other model, `""` for `local/` with nothing after it. A self-hosted model's
+ * price, margin and Serve switch are all keyed by this id, so `llama3.1:8b` and
+ * `llama3.1:70b` are two models.
+ */
+function localModelId(model) {
+  const m = /^local\//i.exec(String(model).trim());
+  return m ? String(model).trim().slice(m[0].length).trim() : null;
+}
+
+/**
+ * A dollar amount given on the command line: undefined when the flag is absent,
+ * else a finite number >= 0. Anything else is refused here, before a request; the
+ * cap, the maximum and the decimals stay the server's.
+ */
+function checkDollars(raw, flag) {
+  const n = parseDollars(raw);
+  if (n === null) die(`${flag} is a number of dollars per million tokens, 0 or more.`, "For example 0.2");
+  return n;
+}
+
+const LOCAL_STATUS_WORDS = {
+  following: "follows list × your margin",
+  typed: "your price",
+  over_cap: "not offered: above 3× the new list price",
+  unpriced: "not sold: no list price — type one",
+  off: "off",
+};
+
+/**
+ * The self-hosted section of `aile rates`, from `GET /pricing`'s `local` block.
+ * Absent (an older server): nothing. `null`: the server could not read it, said in
+ * one line. Returns whether it listed any model (the hints under it depend on that).
+ */
+function printSelfHosted(local) {
+  if (local === undefined) return false;
+  if (local === null) {
+    console.log(`\n  ${C.dim}Self-hosted prices could not be read just now.${C.reset}`);
+    return false;
+  }
+  const rows = Array.isArray(local?.models) ? local.models : [];
+  if (!rows.length) return false;
+  console.log(`\n  ${C.bold}Self-hosted models${C.reset} ${C.dim}(${rows.length})${C.reset}`);
+  for (const r of rows) {
+    if (!r || typeof r.model !== "string") continue;
+    const word = LOCAL_STATUS_WORDS[r.status] || String(r.status || "");
+    const tone = r.status === "following" || r.status === "typed" ? C.green : r.status === "off" ? C.yellow : C.red;
+    console.log(`  ${C.cyan}local/${r.model}${C.reset}  ${C.dim}${r.online ? "online" : "offline"}${C.reset}  ${tone}${word}${C.reset}`);
+    const price = r.price ? `${usdText(r.price.in)} in / ${usdText(r.price.out)} out per Mtok` : "—";
+    const list = r.list ? `${usdText(r.list.in)} / ${usdText(r.list.out)}` : "no list";
+    const margin = Number.isFinite(Number(r.margin)) ? `, margin ${marginText(r.margin)}${r.marginSet ? " (this model)" : ""}` : "";
+    console.log(`    ${C.dim}callers pay${C.reset} ${price}  ${C.dim}· list ${list}${margin}${C.reset}`);
+  }
+  return true;
 }
 
 /**

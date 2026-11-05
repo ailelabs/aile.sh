@@ -37,7 +37,7 @@ import {
   shortcutName, validShortcutName, chooseBinDir, shortcutFiles, foreignShortcut,
   installShortcut, removeShortcut, pathHint,
 } from "../setup/shortcuts.js";
-import { fetchChatModels, curatedModels, defaultModel } from "../setup/models.js";
+import { fetchChatModels, curatedModels, defaultModel, isSelfHosted } from "../setup/models.js";
 import { obtainKey, KeyError, describeKey, KEY_RE, cleanKey, checkKey } from "../setup/key.js";
 import { commitEdit } from "../setup/files.js";
 import { loadManifest, saveManifest, recordTool, MANIFEST_FILE } from "../setup/manifest.js";
@@ -282,6 +282,14 @@ export async function setupCommand(args) {
   const models = await withSpinner("Reading the model list…", fetchChatModels({ serverUrl: server, insecure }));
   const listed = curatedModels(models, { all: args.models === "all" });
   const fallbackModel = args.model ? String(args.model) : defaultModel(models);
+  // A self-hosted model is priced by its sharer, so a call to one must name the most it pays, and most of these
+  // tools cannot send a header. None is ever listed or made a default: say so once, and say what an explicit one needs.
+  if (args.models === "all" && models.selfHostedLeftOut > 0) {
+    console.log(`${C.dim}Left out ${models.selfHostedLeftOut} self-hosted model${models.selfHostedLeftOut === 1 ? "" : "s"} (local/…): a call to one must name the most it pays. Set a ceiling on your key with aile keys set --local-max-price 2, then name one with --model.${C.reset}`);
+  }
+  if (args.model && args.model !== true && isSelfHosted(args.model)) {
+    console.log(`${C.dim}${String(args.model)} is priced by its sharer: your key needs a self-hosted price ceiling (aile keys set --local-max-price 2), or every call is refused.${C.reset}`);
+  }
 
   // --- the key ---------------------------------------------------------------
   const needsKey = chosen.some((t) => !printsOnly(t));

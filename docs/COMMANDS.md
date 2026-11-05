@@ -259,14 +259,19 @@ aile rates set claude-opus-5 --model-margin 0.8  # a margin for one model
 aile rates clear claude-opus-5                   # back to the global margin
 aile rates off claude-opus-5                     # stop serving one model
 aile rates on claude-opus-5                      # serve it again
+aile rates set local/llama3.1:8b --in 0.2 --out 0.6   # type a price for a self-hosted model
+aile rates follow local/llama3.1:8b              # drop it: list × your margin again
+aile rates off local/llama3.1:8b                 # stop serving that one tag
 ```
 
 | Flag | What it does |
 |---|---|
 | `--margin <x>` | Global multiplier on list price, `0` (free) to `1` (list). Above `1` is refused. |
 | `--model-margin <x>` | Per-model multiplier (with `set`), `0` to `1`. |
+| `--in <usd>` `--out <usd>` | A typed price in dollars per million tokens, input and output, **for a self-hosted model only** (name it `local/<id>`). Both are required with `set`. Not with `--model-margin`. |
+| `--cache-read <usd>` | Optional cache-read price for a typed self-hosted price. Bills at input when left out. |
 
-`--in` and `--out` are refused: there are no dollar prices to type. A model with no published list is not sold.
+A model named `local/<id>` is self-hosted: the id is sent exactly as written (case and tag kept), so `set`, `clear`, `follow`, `on` and `off` land on that one tag. `--in` and `--out` on any other model are refused before anything is sent: a subscription or API-key model sells at list × margin only. A model with no published list is not sold until you type a price for it. `aile rates` also lists your self-hosted models with their status (follows the list, your price, not offered, not sold, off) and the price a caller pays now.
 
 > [!TIP]
 > **rates is not price**
@@ -292,6 +297,7 @@ aile local                              # what is set up, and what each model se
 aile local models [query]               # models that download and sell, and which fit here
 aile local pull qwen/qwen3-8b           # download one: a curated id or an Ollama tag
 aile local pull hf.co/<user>/<repo>     # any GGUF on Hugging Face (:Q8_0 picks a quant)
+aile local pull mistral:7b --in 0.1 --out 0.3   # download it and type its price (--cache-read optional)
 aile local list                         # what is downloaded
 aile local run <model> "a prompt"       # talk to it; no prompt opens a chat
 aile local rm <model>                   # delete one
@@ -467,11 +473,12 @@ Call an AI model once, from the terminal. Aliased as `ask`. For another agent's 
 aile chat "explain this error" --model claude/claude-sonnet-5
 git diff | aile chat - --model codex/gpt-5.6-sol --system "review this"
 aile chat "hi" --model <model> --max-tokens 800
+aile chat "hi" --model local/llama3.1:8b --max-price 2   # most to pay, dollars per million tokens
 aile chat "hi" --model <model> --anthropic      # Anthropic's format (/v1/messages)
 aile chat "hi" --model <model> --pay own      # from your own wallet, no account needed
 ```
 
-The price is quoted on `--max-tokens` (default `quoteMaxTokens`), not on tokens used.
+The price is quoted on `--max-tokens` (default `quoteMaxTokens`), not on tokens used. `--max-price <usd>` sends `x-aile-max-price`: the most a call may pay per million tokens, input or output. A `local/` (self-hosted) model needs it, because its sharer sets the price, unless your key carries a self-hosted ceiling (`aile keys set --local-max-price 2`).
 
 | `--pay` | Pays with |
 |---|---|
@@ -526,7 +533,12 @@ Your API keys and their routes, and a draft auto route for one of them. Needs `a
 aile keys                       # every key, with its routes
 aile keys suggest               # a draft route for this machine's key
 aile keys suggest --key work    # for another key, by id, name or prefix
+aile keys set --local-max-price 2           # this machine's key: self-hosted calls may pay up to $2 per million tokens
+aile keys set --key work --local-max-price none   # remove it
+aile keys set --allow-local no              # keep this key off self-hosted models (also removes the ceiling)
 ```
+
+`set` changes one key's routing rules and keeps every other rule as it is. `--local-max-price <usd>` is **Max price for self-hosted models**: it covers every self-hosted call made with the key, so a tool that cannot send a header can call a `local/` model, and it never limits provider-served models. `--allow-local no|yes` is **Allow self-hosted models**; a key cannot hold both the ceiling and `no`, so `no` removes the ceiling and says so.
 
 `suggest` picks a light, a standard and a heavy model from what is listed, and shows each one's price and facts. It saves nothing: save the route on your key in the dashboard, then use it with `aile setup --route <name>`.
 

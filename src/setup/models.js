@@ -10,11 +10,24 @@
  *
  * The list is read from the public `GET /v1/models`, so it names only what a
  * lender is serving right now.
+ *
+ * NO `local/` MODEL IS EVER IN IT. A self-hosted model is priced by its sharer, so
+ * a keyed call to one must name the most it will pay (a dollar `x-aile-max-price`,
+ * or a self-hosted ceiling on the key), and most of these tools cannot send a
+ * header: a list or a default naming one would make the tool's first call a 400.
+ * The count left out is kept for the one line that says so (`selfHostedLeftOut`).
  */
 
 import { api } from "../api/client.js";
 
-/** `{id, name, context, maxOut}` for every chat model, or [] when unreachable. */
+/** Is this id a self-hosted model (`local/<id>`)? */
+export const isSelfHosted = (id) => /^local\//i.test(String(id).trim());
+
+/**
+ * `{id, name, context, maxOut}` for every chat model but the self-hosted ones, or []
+ * when unreachable. The returned array carries a non-enumerable `selfHostedLeftOut`:
+ * how many `local/` models the server listed that were left out.
+ */
 export async function fetchChatModels({ serverUrl, insecure = false } = {}) {
   let res;
   try {
@@ -23,14 +36,17 @@ export async function fetchChatModels({ serverUrl, insecure = false } = {}) {
     return [];
   }
   const rows = Array.isArray(res?.data) ? res.data : [];
-  return rows
-    .filter((r) => r && typeof r.id === "string" && (!r.type || r.type === "chat"))
+  const chat = rows.filter((r) => r && typeof r.id === "string" && (!r.type || r.type === "chat"));
+  const out = chat
+    .filter((r) => !isSelfHosted(r.id))
     .map((r) => ({
       id: r.id,
       name: typeof r.display_name === "string" && r.display_name ? r.display_name : r.id,
       context: Number(r.context_length) || null,
       maxOut: Number(r.max_output_tokens) || null,
     }));
+  Object.defineProperty(out, "selfHostedLeftOut", { value: chat.length - out.length, enumerable: false });
+  return out;
 }
 
 const CORE = /^(cc|claude|codex)\//;

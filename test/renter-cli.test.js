@@ -390,3 +390,107 @@ describe("the key stays behind one door", () => {
     }
   });
 });
+
+
+describe("aile chat --max-price, and the self-hosted ceiling refusal", () => {
+  const MESSAGE = '"local/llama3" is priced by its sharer, so a call to it must name the most it will pay per million tokens: send x-aile-max-price in dollars (e.g. "x-aile-max-price: 2"), or set a self-hosted price ceiling on this API key (localMaxUsdPerMtok, "Max price for self-hosted models" in its Routing settings). A percent of list does not count.';
+  const chat = (args, srv, extra = {}) => run(["chat", "hi", "--model", "local/llama3", "--pay", "balance", ...args], { data: dataDir({ serverUrl: srv.url, buyerKey: KEY, ...extra }) });
+
+  it("sends x-aile-max-price in dollars, with the key, on every send", async () => {
+    const srv = aileStub({ chat: () => Response.json(COMPLETION) });
+    try {
+      const res = await chat(["--max-price", "2"], srv);
+      expect(res.code).toBe(0);
+      const call = srv.calls.find((c) => c.path === "/v1/chat/completions");
+      expect(call.headers["x-aile-max-price"]).toBe("2");
+      expect(call.headers.authorization).toBe(`Bearer ${KEY}`);
+    } finally { srv.stop(); }
+  });
+
+  it("takes a $ and a decimal, and the Anthropic format carries it too", async () => {
+    const srv = aileStub({ chat: () => Response.json(COMPLETION) });
+    try {
+      await chat(["--max-price", "$0.25", "--anthropic"], srv);
+      const call = srv.calls.find((c) => c.path === "/v1/messages");
+      expect(call.headers["x-aile-max-price"]).toBe("0.25");
+      expect(call.headers["x-api-key"]).toBe(KEY);
+    } finally { srv.stop(); }
+  });
+
+  it("MUST-NOT: without the flag no x-aile-max-price header is sent", async () => {
+    const srv = aileStub({ chat: () => Response.json(COMPLETION) });
+    try {
+      await chat([], srv);
+      expect(srv.calls.find((c) => c.path === "/v1/chat/completions").headers["x-aile-max-price"]).toBeUndefined();
+    } finally { srv.stop(); }
+  });
+
+  it("a percent is fine for a provider model and refused before sending for a local/ one", async () => {
+    const srv = aileStub({ chat: () => Response.json(COMPLETION) });
+    try {
+      const ok = await run(["chat", "hi", "--model", "claude/claude-sonnet-5", "--pay", "balance", "--max-price", "80%"], { data: dataDir({ serverUrl: srv.url, buyerKey: KEY }) });
+      expect(ok.code).toBe(0);
+      expect(srv.calls.find((c) => c.path === "/v1/chat/completions").headers["x-aile-max-price"]).toBe("80%");
+      const before = srv.calls.length;
+      const bad = await chat(["--max-price", "80%"], srv);
+      expect(bad.code).not.toBe(0);
+      expect(bad.all).toMatch(/percent of list does not apply to local\/llama3/);
+      expect(srv.calls.length).toBe(before);
+    } finally { srv.stop(); }
+  });
+
+  it("a nonsense value dies before any request", async () => {
+    const srv = aileStub({ chat: () => Response.json(COMPLETION) });
+    try {
+      for (const v of ["0", "-2", "abc", ""]) {
+        const res = await chat(["--max-price", v], srv);
+        expect(res.code).not.toBe(0);
+      }
+      expect((await chat(["--max-price"], srv)).code).not.toBe(0);
+      expect(srv.calls).toHaveLength(0);
+    } finally { srv.stop(); }
+  });
+
+  it("the local-ceiling 400 (by header) is explained, with the two ways out", async () => {
+    const srv = aileStub({ chat: () => Response.json({ error: { message: "x" } }, { status: 400, headers: { "x-aile-refused-by": "local-ceiling" } }) });
+    try {
+      const res = await chat([], srv);
+      expect(res.code).not.toBe(0);
+      expect(res.all).toContain("local/llama3 is priced by its sharer, so a call must name the most it pays.");
+      expect(res.all).toContain("Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2");
+      expect(res.all).not.toContain("The request failed");
+    } finally { srv.stop(); }
+  });
+
+  it("a round-1 server (no header) is recognised by its message", async () => {
+    const srv = aileStub({ chat: () => Response.json({ error: { message: MESSAGE } }, { status: 400 }) });
+    try {
+      const res = await chat([], srv);
+      expect(res.all).toContain("is priced by its sharer, so a call must name the most it pays.");
+    } finally { srv.stop(); }
+  });
+
+  it("MUST-NOT: any other 400 keeps the generic failure, even one that mentions a ceiling elsewhere", async () => {
+    const srv = aileStub({ chat: () => Response.json({ error: { message: "bad body" } }, { status: 400, headers: { "x-aile-refused-by": "route-budget" } }) });
+    try {
+      const res = await chat([], srv);
+      expect(res.all).toContain("The request failed: bad body");
+      expect(res.all).not.toContain("priced by its sharer");
+    } finally { srv.stop(); }
+    const other = aileStub({ chat: () => Response.json({ error: { message: "is priced by its sharer" } }, { status: 503 }) });
+    try {
+      expect((await chat([], other)).all).toContain("The request failed");
+    } finally { other.stop(); }
+  });
+
+  it("the refusal helper reads the header, the message and the status", async () => {
+    const { isLocalCeilingRefusal, maxPriceHeader } = await import("../src/cli/renter-command.js");
+    expect(isLocalCeilingRefusal({ status: 400, headers: new Headers({ "x-aile-refused-by": "Local-Ceiling" }) })).toBe(true);
+    expect(isLocalCeilingRefusal({ status: 400, headers: new Headers() }, "x is priced by its sharer, y")).toBe(true);
+    expect(isLocalCeilingRefusal({ status: 402, headers: new Headers({ "x-aile-refused-by": "local-ceiling" }) })).toBe(false);
+    expect(isLocalCeilingRefusal({ status: 400, headers: new Headers() }, "nope")).toBe(false);
+    expect(isLocalCeilingRefusal(null)).toBe(false);
+    expect(maxPriceHeader(undefined, "x")).toBeNull();
+    expect(maxPriceHeader("2", "local/x")).toEqual({ "x-aile-max-price": "2" });
+  });
+});

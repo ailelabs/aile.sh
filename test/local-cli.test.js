@@ -25,11 +25,19 @@ const ollama = startStubOllama();
 // The relay's `GET /catalog/self-hosted`: the curated ids price, nothing else does.
 let priceUp = true;
 const priced = new Set(["meta-llama/llama-3.1-8b-instruct", "qwen/qwen3-8b", "meta-llama/llama-3.2-1b-instruct"]);
+// `PUT /pricing/model` (the sharer's typed price), recorded; `typedRefusal` makes the server refuse it.
+const typedCalls = [];
+let typedRefusal = null;
 const api = Bun.serve({
   port: 0,
   hostname: "127.0.0.1",
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
+    if (url.pathname === "/pricing/model" && req.method === "PUT") {
+      typedCalls.push({ body: await req.json(), auth: req.headers.get("authorization") });
+      if (typedRefusal) return Response.json({ success: false, message: typedRefusal }, { status: 400 });
+      return Response.json({ success: true, message: "", data: { ok: true } });
+    }
     if (url.pathname === "/catalog/self-hosted" && priceUp) {
       const ids = url.searchParams.get("ids").split(",");
       return Response.json({ success: true, message: "", data: { models: ids.map((id) => priced.has(id)
@@ -61,7 +69,7 @@ afterAll(() => {
   ollama.stop(); api.stop(true); hf.stop(true);
   for (const d of scratches) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ } }
 });
-beforeEach(() => { priceUp = true; ollama.state.calls = []; });
+beforeEach(() => { priceUp = true; ollama.state.calls = []; typedCalls.length = 0; typedRefusal = null; });
 
 function dataDir(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aile-localcli-"));
@@ -129,8 +137,75 @@ describe("aile local pull (Ollama)", () => {
     const data = dataDir();
     const { all, code } = await run(["local", "pull", "mistral:7b"], { data });
     expect(code).toBe(0);
-    expect(all).toContain("Not sellable: mistral:7b has no published list price");
+    expect(all).toContain("mistral:7b has no published list price");
+    expect(all).toContain("no list price: it sells only once you type a price (aile rates set local/mistral:7b --in <$> --out <$>)");
+    expect(all).not.toContain("will not sell");
+    expect(all).not.toContain("refused by the network");
     expect(readConfig(data).localModels).toBeUndefined();
+    expect(typedCalls).toHaveLength(0);
+  });
+
+  test("--in and --out type the price for the pulled id, and the model counts as sellable and is advertised", async () => {
+    const data = dataDir({ renterToken: "ail_" + "a".repeat(48) });
+    const { all, code } = await run(["local", "pull", "mistral:7b", "--in", "0.1", "--out", "0.3"], { data });
+    expect(code).toBe(0);
+    expect(typedCalls).toEqual([{ body: { model: "mistral:7b", provider: "local", inUsd: 0.1, outUsd: 0.3 }, auth: "Bearer ail_" + "a".repeat(48) }]);
+    expect(all).toContain("Sells as local/mistral:7b");
+    expect(all).toContain("your price $0.1 in / $0.3 out per million tokens");
+    expect(all).not.toContain("no list price");
+    expect(readConfig(data).localModels).toBe("mistral:7b");
+  });
+
+  test("--cache-read rides along, and only when given", async () => {
+    const data = dataDir({ renterToken: "ail_" + "a".repeat(48) });
+    await run(["local", "pull", "mistral:7b", "--in", "0.1", "--out", "0.3", "--cache-read", "0.02"], { data });
+    expect(typedCalls[0].body).toEqual({ model: "mistral:7b", provider: "local", inUsd: 0.1, outUsd: 0.3, cacheReadUsd: 0.02 });
+  });
+
+  test("a price typed for a model that already has a list is still typed, and still sells", async () => {
+    const data = dataDir({ renterToken: "ail_" + "a".repeat(48) });
+    const { all, code } = await run(["local", "pull", "llama3.1:8b", "--in", "0.04", "--out", "0.07"], { data });
+    expect(code).toBe(0);
+    expect(typedCalls[0].body.model).toBe("meta-llama/llama-3.1-8b-instruct");
+    expect(all).toContain("your price $0.04 in / $0.07 out");
+  });
+
+  test("a refused price leaves the pull standing, shows the server's words and the command to retry, and does not advertise", async () => {
+    typedRefusal = "nothing to price yet — connect a node first";
+    const data = dataDir({ renterToken: "ail_" + "a".repeat(48) });
+    const { all, code } = await run(["local", "pull", "mistral:7b", "--in", "0.1", "--out", "0.3"], { data });
+    expect(code).toBe(0);
+    expect(all).toMatch(/Downloaded mistral:7b|mistral:7b is already downloaded/);
+    expect(all).toContain("Your price was not set: nothing to price yet — connect a node first");
+    expect(all).toContain("the download stands");
+    expect(all).toContain("aile rates set local/mistral:7b --in 0.1 --out 0.3");
+    expect(all).not.toContain("Sells as");
+    expect(readConfig(data).localModels).toBeUndefined();
+  });
+
+  test("not signed in: the pull stands and says to sign in, then to retry", async () => {
+    const data = dataDir();
+    const { all, code } = await run(["local", "pull", "mistral:7b", "--in", "0.1", "--out", "0.3"], { data });
+    expect(code).toBe(0);
+    expect(typedCalls).toHaveLength(0);
+    expect(all).toContain("you are not signed in, so your price was not set");
+    expect(all).toContain("aile login, then aile rates set local/mistral:7b --in 0.1 --out 0.3");
+  });
+
+  test("a bad flag dies before the download starts", async () => {
+    for (const args of [["--in", "0.1"], ["--out", "0.3"], ["--in", "x", "--out", "1"], ["--in", "-1", "--out", "1"], ["--in", "1", "--out", "1", "--cache-read", "no"]]) {
+      ollama.state.calls = [];
+      const { code } = await run(["local", "pull", "mistral:7b", ...args], { data: dataDir({ renterToken: "ail_" + "a".repeat(48) }) });
+      expect(code).not.toBe(0);
+      expect(ollama.state.calls.some((c) => c.path === "/api/pull")).toBe(false);
+    }
+    expect(typedCalls).toHaveLength(0);
+  });
+
+  test("MUST-NOT: a pull without the flags sends no price", async () => {
+    const data = dataDir({ renterToken: "ail_" + "a".repeat(48) });
+    await run(["local", "pull", "llama3.1:8b"], { data });
+    expect(typedCalls).toHaveLength(0);
   });
 
   test("a pull never moves lending that points at another server", async () => {

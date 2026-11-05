@@ -374,7 +374,7 @@ describe("aile rates — what this lender charges", () => {
     });
   });
 
-  it("refuses --in / --out as retired, and sends nothing", async () => {
+  it("refuses --in / --out on a model that is not self-hosted, and sends nothing", async () => {
     // The server 400s any dollar price; refusing here means the request never leaves.
     for (const args of [
       ["rates", "set", "claude-opus-5", "--in", "3", "--out", "15"],
@@ -383,7 +383,7 @@ describe("aile rates — what this lender charges", () => {
     ]) {
       const { code, all } = await run(args, { data });
       expect(code).not.toBe(0);
-      expect(all).toMatch(/Dollar prices are retired — use --model-margin/);
+      expect(all).toContain("Dollar prices are for self-hosted models only — use --model-margin (0 = free, 1 = list), or name one as local/<id>.");
     }
     expect(stub.calls).toHaveLength(0);
   });

@@ -19,7 +19,7 @@ import { getTool, revertTool } from "../src/setup/tools.js";
 import { makeCtx, webOrigin, bases } from "../src/setup/ctx.js";
 import { spawnPlan, cmdEscapeArg, batchReparses } from "../src/setup/exec.js";
 import { splitRunArgv, routeHolders } from "../src/cli/setup-command.js";
-import { curatedModels, defaultModel, isClaudeModel } from "../src/setup/models.js";
+import { curatedModels, defaultModel, fetchChatModels, isClaudeModel, isSelfHosted } from "../src/setup/models.js";
 import { mergeRecords } from "../src/setup/manifest.js";
 
 const scratches = [];
@@ -535,6 +535,40 @@ describe("models and web origin", () => {
   it("defaults to Claude Sonnet when it is served", () => {
     expect(defaultModel(models)).toBe("cc/claude-sonnet-5");
     expect(defaultModel([])).toBe("cc/claude-sonnet-5");
+  });
+
+  it("fetchChatModels never returns a self-hosted model, and counts the ones it left out", async () => {
+    const server = Bun.serve({
+      port: 0, hostname: "127.0.0.1",
+      fetch: () => Response.json({ object: "list", data: [
+        { id: "local/llama3.1:8b", type: "chat" }, { id: "cc/claude-sonnet-5", type: "chat" }, { id: "LOCAL/Qwen3:30b" },
+        { id: "local/embed", type: "embedding" }, { id: "openai/dall-e", type: "image" }, { id: "codex/gpt-5.5", type: "chat" },
+      ] }),
+    });
+    try {
+      const got = await fetchChatModels({ serverUrl: `http://127.0.0.1:${server.port}`, insecure: true });
+      expect(got.map((m) => m.id)).toEqual(["cc/claude-sonnet-5", "codex/gpt-5.5"]);
+      expect(got.selfHostedLeftOut).toBe(2); // the embedding row is not a chat model at all, so it is not counted
+      // The count is not an element and does not leak into a copy or a comparison.
+      expect(Object.keys(got)).toEqual(["0", "1"]);
+      expect(got).toEqual([...got]);
+      // A tool's list and default never name one, even when the server lists it first.
+      expect(curatedModels(got, { all: true }).some((m) => isSelfHosted(m.id))).toBe(false);
+      expect(defaultModel(got)).toBe("cc/claude-sonnet-5");
+    } finally { server.stop(true); }
+  });
+
+  it("an unreachable server still reads as an empty list", async () => {
+    const got = await fetchChatModels({ serverUrl: "http://127.0.0.1:9", insecure: true });
+    expect(got).toEqual([]);
+    expect(got.selfHostedLeftOut ?? 0).toBe(0);
+  });
+
+  it("isSelfHosted reads the prefix, any case, and only the prefix", () => {
+    expect(isSelfHosted("local/llama3")).toBe(true);
+    expect(isSelfHosted(" LOCAL/x")).toBe(true);
+    expect(isSelfHosted("openrouter/local/x")).toBe(false);
+    expect(isSelfHosted("localhost/x")).toBe(false);
   });
 
   it("tells a Claude model by its id", () => {

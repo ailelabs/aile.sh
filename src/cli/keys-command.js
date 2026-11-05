@@ -1,10 +1,12 @@
 /**
- * `aile keys`, `aile keys suggest` and `aile route` — finding a key, drafting a
- * route for it, and asking what a request would try.
+ * `aile keys`, `aile keys suggest`, `aile keys set` and `aile route` — finding a key,
+ * drafting a route for it, setting its self-hosted rules, and asking what a request
+ * would try.
  *
- * All three read the account (`requireRenter` on the server), so they send the
- * account token and a key's ID, never a key's secret. Nothing here saves or sends
- * a request through a sharer.
+ * All of them read the account (`requireRenter` on the server), so they send the
+ * account token and a key's ID, never a key's secret. Nothing here sends a request
+ * through a sharer. `set` is the one that writes, and it writes the key's routing
+ * rules only (never a route).
  */
 
 import { api, ApiError } from "../api/client.js";
@@ -14,6 +16,7 @@ import { loadManifest } from "../setup/manifest.js";
 import { cleanKey, describeKey } from "../setup/key.js";
 import { C } from "./colors.js";
 import { die, withSpinner, heading, sym, bold, dim, padTo } from "./ui.js";
+import { maxPriceHeader } from "./renter-command.js";
 
 const stem = (k) => String(k.prefix || "").replace(/…$/, "");
 const label = (k) => `${k.name || "unnamed"} (${k.prefix})${k.disabled ? ", off" : k.expired ? ", expired" : ""}`;
@@ -98,12 +101,15 @@ function pickKey(keys, args, config) {
 
 export async function cmdKeys(args, ctx) {
   const sub = args._[1];
-  if (sub !== undefined && sub !== "suggest") {
-    die(`"aile keys ${sub}" is not a command.`, "`aile keys` lists your keys; `aile keys suggest` drafts a route.");
+  if (sub !== undefined && sub !== "suggest" && sub !== "set") {
+    die(`"aile keys ${sub}" is not a command.`, "`aile keys` lists your keys; `aile keys suggest` drafts a route; `aile keys set` changes a key's self-hosted rules.");
   }
+  // A bad flag ends the command before the network is touched.
+  const change = sub === "set" ? readSetFlags(args) : null;
   const c = connect(args, ctx);
   const keys = await readKeys(c, ctx);
   if (sub === "suggest") return suggest(args, ctx, c, keys);
+  if (sub === "set") return setRules(args, ctx, c, keys, change);
 
   if (args.json) return console.log(JSON.stringify({ keys }, null, 2));
   if (!keys.length) {
@@ -123,6 +129,8 @@ export async function cmdKeys(args, ctx) {
     console.log(`  ${bold(k.name || "unnamed")}  ${k.prefix}${tags.length ? `  ${tags.join("  ")}` : ""}`);
     const limit = k.creditLimitUsd ? ` of $${k.creditLimitUsd}${k.limitWindow ? ` per ${k.limitWindow}` : ""}` : "";
     console.log(`    id ${k.id}${dot}$${k.spentUsd} spent${limit}`);
+    const selfHosted = selfHostedLine(k.filters);
+    if (selfHosted) console.log(`    ${selfHosted}`);
     if (k.aliases?.length) {
       const names = k.aliases.map((a) => `${a.name}${a.auto ? " (auto)" : ""}${a.description ? ` — ${a.description}` : ""}`);
       console.log(`    routes: ${names.join(", ")}`);
@@ -130,6 +138,113 @@ export async function cmdKeys(args, ctx) {
   }
   console.log();
   console.log(dim("A route for one of them: aile keys suggest --key <id, name or prefix>"));
+  console.log(dim("Self-hosted rules:       aile keys set --local-max-price 2   (or --allow-local no)"));
+}
+
+/** What a key says about self-hosted models, as one list line: its ceiling, or that it refuses them. Nothing when it says nothing. */
+function selfHostedLine(filters) {
+  if (filters?.allowLocal === false) return "self-hosted off";
+  const c = filters?.localMaxUsdPerMtok;
+  return typeof c === "number" && Number.isFinite(c) ? `self-hosted ≤ $${+c.toFixed(6)}/Mtok` : null;
+}
+
+// ---------------------------------------------------------------------------
+
+const CEILING_MAX = 1000;
+const NONE_WORDS = ["none", "off", "clear", "remove"];
+const YES_WORDS = ["yes", "true", "on", "1"];
+const NO_WORDS = ["no", "false", "off", "0"];
+
+/**
+ * `--local-max-price <usd>|none` and `--allow-local yes|no`, checked before any request. The ceiling
+ * takes what the server takes (dollars per million tokens, above 0, at most 1000, at most 6 decimals,
+ * an optional `$`): a value it would refuse is refused here, never sent and never dropped.
+ * Returns `{ ceiling: number | "none" | undefined, allowLocal: boolean | undefined }`.
+ */
+function readSetFlags(args) {
+  const price = args["local-max-price"];
+  const allow = args["allow-local"];
+  if (price === undefined && allow === undefined) {
+    die("Set what?", "Try `aile keys set --local-max-price 2` (dollars per million tokens), or `aile keys set --allow-local no`.");
+  }
+  let ceiling;
+  if (price !== undefined) {
+    const text = typeof price === "string" ? price.trim().replace(/^\$/, "") : "";
+    if (NONE_WORDS.includes(text.toLowerCase())) ceiling = "none";
+    else {
+      const m = /^\d+(?:\.(\d+))?$/.exec(text);
+      const v = Number(text);
+      if (!m || (m[1] && m[1].length > 6) || !Number.isFinite(v) || v <= 0 || v > CEILING_MAX) {
+        die("--local-max-price is dollars per million tokens, above 0 and at most 1000, with at most 6 decimals — or `none`.", "For example --local-max-price 2");
+      }
+      ceiling = v;
+    }
+  }
+  let allowLocal;
+  if (allow !== undefined) {
+    const word = typeof allow === "string" ? allow.trim().toLowerCase() : "";
+    if (YES_WORDS.includes(word)) allowLocal = true;
+    else if (NO_WORDS.includes(word)) allowLocal = false;
+    else die("--allow-local is `yes` or `no`.", "`no` keeps this key off self-hosted models.");
+  }
+  if (allowLocal === false && typeof ceiling === "number") {
+    die("A key that refuses self-hosted models cannot also set a price ceiling for them.", "Use --allow-local yes with the ceiling, or --allow-local no on its own.");
+  }
+  return { ceiling, allowLocal };
+}
+
+/**
+ * Change one key's self-hosted rules and keep every other rule exactly as the server returned it:
+ * the server replaces the WHOLE filter set, so the next set is the stored one with only these
+ * fields moved. `--allow-local no` drops the ceiling (the server refuses both together) and says so.
+ */
+async function setRules(args, ctx, c, keys, { ceiling, allowLocal }) {
+  const row = pickKey(keys, args, c.config);
+  const next = { ...(row.filters && typeof row.filters === "object" ? row.filters : {}) };
+  const notes = [];
+  if (allowLocal === false) {
+    next.allowLocal = false;
+    notes.push("It now refuses self-hosted models.");
+    if (next.localMaxUsdPerMtok !== undefined) {
+      delete next.localMaxUsdPerMtok;
+      notes.push("Its self-hosted price ceiling was dropped too, because a key cannot hold both.");
+    }
+  } else if (allowLocal === true) {
+    delete next.allowLocal;
+    notes.push("Self-hosted models are allowed on it.");
+  }
+  if (ceiling === "none") {
+    if (next.localMaxUsdPerMtok !== undefined) notes.push("Its self-hosted price ceiling was dropped.");
+    else if (allowLocal === undefined) notes.push("It had no self-hosted price ceiling.");
+    delete next.localMaxUsdPerMtok;
+  } else if (typeof ceiling === "number") {
+    if (next.allowLocal === false) {
+      die(`${label(row)} refuses self-hosted models, so a price ceiling for them has nothing to bound.`, `\`aile keys set --allow-local yes --local-max-price ${ceiling}\` allows them and sets it.`);
+    }
+    if (next.dataCollection === "deny") {
+      die(`${label(row)} denies data collection, which refuses self-hosted models, so a price ceiling for them has nothing to bound.`, "Change that rule in the dashboard's Routing settings for the key.");
+    }
+    next.localMaxUsdPerMtok = ceiling;
+    notes.push(`Self-hosted calls on it may now pay up to $${ceiling} per million tokens, input or output.`);
+  }
+
+  const res = await ask(
+    () => withSpinner("Saving", () => api.setKeyFilters({
+      id: row.id, filters: Object.keys(next).length ? next : null,
+      serverUrl: c.server, insecure: c.insecure, token: c.token,
+    })),
+    ctx, c.server, LISTED,
+  );
+  if (args.json) return console.log(JSON.stringify(res, null, 2));
+  console.log();
+  console.log(`${C.green}Saved.${C.reset} ${bold(label(row))}`);
+  for (const n of notes) console.log(`  ${n}`);
+  // An older server stores only the fields it knows: say so rather than let the ceiling look saved.
+  const kept = res?.key?.filters?.localMaxUsdPerMtok;
+  if (typeof ceiling === "number" && res?.key && kept !== ceiling) {
+    console.log(`  ${C.yellow}This server does not keep a self-hosted price ceiling yet — send x-aile-max-price on each call (aile chat --max-price).${C.reset}`);
+  }
+  console.log();
 }
 
 const LEFT_OUT = [
@@ -207,6 +322,8 @@ export async function cmdRoute(args, ctx) {
   const headers = {};
   if (args.tier) headers["x-aile-auto-tier"] = args.tier;
   if (args.data) headers["x-aile-data-collection"] = args.data;
+  // A self-hosted model's sharer sets its price, so the plan of a keyed call to one needs a dollar ceiling too.
+  Object.assign(headers, maxPriceHeader(args["max-price"], name));
 
   const c = connect(args, ctx);
   const row = pickKey(await readKeys(c, ctx), args, c.config);
