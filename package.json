@@ -1,6 +1,6 @@
 {
   "name": "aile.sh",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Command-line client for aile.sh — share spare AI capacity from a machine you own, or choose which sharer serves your requests.",
   "type": "module",
   "bin": {

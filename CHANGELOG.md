@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-05
+
 ### Added
 
 - `aile rates` reads and sets the price of a self-hosted model. A model named
@@ -39,6 +41,8 @@ a patch bump fixes something.
 - A call to a `local/` model that names no ceiling is explained instead of
   printed as a failure: it says the model is priced by its sharer and gives the
   two ways out (`--max-price`, or `aile keys set --local-max-price`).
+- `aile connect particle` links a Particle API key (`pai-…`, from
+  platform.particle.ai), and a node may dial its API host.
 
 ### Changed
 
