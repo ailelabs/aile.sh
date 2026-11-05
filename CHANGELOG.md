@@ -10,6 +10,48 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Added
+
+- `aile rates` reads and sets the price of a self-hosted model. A model named
+  `local/<id>` is sent as the id exactly as your node advertises it, tag and case
+  kept: `aile rates set local/llama3.1:8b --in 0.2 --out 0.6 [--cache-read 0.05]`
+  types a price (dollars per million tokens), `aile rates follow local/<id>`
+  gives it back to list x your margin, and `on`, `off`, `set --model-margin` and
+  `clear` now land on that one tag. The read shows a "Self-hosted models" section:
+  each id, online or offline, its status (follows the list, your price, not
+  offered, not sold, off), what a caller pays now, the list and the margin.
+  An older server that sends no such block prints nothing extra.
+- `aile local pull <model> --in <usd> --out <usd> [--cache-read <usd>]` downloads
+  a model and types its price in one go. A model priced that way counts as
+  sellable and is offered. If the price is refused (not signed in, no node yet,
+  over the cap) the download stands and the server's words and the command to
+  retry are shown.
+- `aile keys set [--key <id|name|prefix>] [--local-max-price <usd>|none]
+  [--allow-local yes|no]` sets a key's self-hosted rules and keeps every other
+  rule as it was. `--local-max-price` is the key's "Max price for self-hosted
+  models": every self-hosted call made with the key may pay up to that many
+  dollars per million tokens, so a tool that cannot send a header can call a
+  `local/` model. `--allow-local no` keeps a key off self-hosted models and drops
+  the ceiling, which a key cannot hold beside it. `aile keys` lists each key's
+  ceiling, or "self-hosted off".
+- `aile chat --max-price <usd>` sends `x-aile-max-price`, the most a call may pay
+  per million tokens. `aile route <name> --max-price <usd>` plans with it.
+- A call to a `local/` model that names no ceiling is explained instead of
+  printed as a failure: it says the model is priced by its sharer and gives the
+  two ways out (`--max-price`, or `aile keys set --local-max-price`).
+
+### Changed
+
+- Dollar prices are no longer "retired" on `aile rates`: they exist for
+  self-hosted models only. `--in` / `--out` on any other model still stop before
+  anything is sent, now saying "Dollar prices are for self-hosted models only".
+- `aile setup` never writes a `local/` model into a tool's model list or makes
+  one a tool's default, because most tools cannot send the price ceiling a call
+  to one needs. `--models all` says how many it left out; an explicit
+  `--model local/<id>` is honoured and says the key needs a self-hosted ceiling.
+- `aile local` no longer says a model with no list price "will not sell". It
+  sells once you type a price: `aile rates set local/<id> --in <$> --out <$>`.
+
 ## [1.3.0] - 2026-11-04
 
 ### Removed

@@ -2,6 +2,7 @@
  * The buying side, from a terminal:
  *
  *   aile chat "<prompt>" --model <provider/model>   one model call
+ *                                                    (--max-price <usd>: the most it may pay per million tokens)
  *   aile balance                                     what you can spend
  *   aile deposit                                     where to add funds
  *   aile pay <url>                                   any x402 endpoint (your own wallet)
@@ -62,11 +63,14 @@ export async function cmdChat(args, ctx) {
   const maxTokens = intFlag(args["max-tokens"], "--max-tokens") ?? (Number(config.quoteMaxTokens) || 4096);
   const format = args.anthropic ? "anthropic" : "openai";
   const body = requestBody({ format, model: String(model), prompt, system: args.system, maxTokens, temperature: args.temperature });
+  // `--max-price` rides every send (a paid retry included) as `x-aile-max-price`. A self-hosted model's
+  // sharer sets its price, so a keyed call to one must name the most it will pay; it bounds any other model too.
+  const lever = maxPriceHeader(args["max-price"], String(model));
 
   // `--pay own` needs no account at all: the payer's address is the principal.
   const key = pay === "own" ? null : await buyerKey(config, { server, insecure });
   const send = (extra = null) => api.inference({
-    path: ROUTES[format], body, serverUrl: server, insecure, ...authFor(format, key, extra),
+    path: ROUTES[format], body, serverUrl: server, insecure, ...authFor(format, key, lever ? { ...lever, ...(extra || {}) } : extra),
   });
 
   let res;
@@ -116,6 +120,10 @@ export async function cmdChat(args, ctx) {
 
   if (res.status < 200 || res.status >= 300) {
     const msg = errorText(res.body) || `the server answered ${res.status}`;
+    if (isLocalCeilingRefusal(res, msg)) {
+      die(`${model} is priced by its sharer, so a call must name the most it pays.`,
+        "Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2");
+    }
     die(`The request failed: ${msg}`, res.status === 401 ? "Your key was refused — `aile setup refresh --new-key` makes a new one." : null);
   }
 
@@ -133,6 +141,34 @@ export async function cmdChat(args, ctx) {
   } else {
     console.error(`${C.dim}\n  paid from your balance${tokens} ${sym.dot} aile spend shows the charge${C.reset}`);
   }
+}
+
+/**
+ * `--max-price <usd>` as the `x-aile-max-price` header (dollars per million tokens, input and output each),
+ * or null when not given. Checked here so a value the server would refuse never leaves; a percent of list
+ * is allowed on a provider model and refused on a `local/` one, which has no list to measure against.
+ */
+export function maxPriceHeader(raw, model) {
+  if (raw === undefined) return null;
+  const text = typeof raw === "string" ? raw.trim().replace(/^\$/, "") : "";
+  const m = /^(\d+(?:\.\d+)?)\s*(%?)$/.exec(text);
+  if (!m || !(Number(m[1]) > 0)) die("--max-price is dollars per million tokens, above 0.", "For example --max-price 2");
+  if (m[2] && /^local\//i.test(model.trim())) {
+    die(`A percent of list does not apply to ${model}: a self-hosted model is priced by its sharer.`, "Pass dollars per million tokens, e.g. --max-price 2");
+  }
+  return { "x-aile-max-price": m[2] ? `${m[1]}%` : m[1] };
+}
+
+/**
+ * The server's refusal of a keyed `local/` call that named no dollar ceiling: a 400 whose `x-aile-refused-by`
+ * is `local-ceiling`, or, on a server that predates that header, whose message says the model "is priced by
+ * its sharer".
+ */
+export function isLocalCeilingRefusal(res, message = "") {
+  if (res?.status !== 400) return false;
+  const by = res.headers?.get?.("x-aile-refused-by");
+  if (typeof by === "string" && by.trim().toLowerCase() === "local-ceiling") return true;
+  return /is priced by its sharer/i.test(String(message));
 }
 
 // ---------------------------------------------------------------------------

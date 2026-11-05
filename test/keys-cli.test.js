@@ -58,8 +58,18 @@ function stub(init = {}) {
     port: 0, hostname: "127.0.0.1",
     async fetch(req) {
       const url = new URL(req.url);
-      const text = req.method === "POST" ? await req.text() : "";
+      const text = req.method === "POST" || req.method === "PUT" ? await req.text() : "";
       s.requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), headers: Object.fromEntries(req.headers), body: text ? JSON.parse(text) : null, raw: text, url: req.url });
+      // PUT /keys/:id/filters stores what it is sent; `ignoreLocalCeiling` plays a server that predates the field.
+      const put = /^\/keys\/([^/]+)\/filters$/.exec(url.pathname);
+      if (put && req.method === "PUT") {
+        if (s.status.filters) return Response.json({ success: false, message: s.status.filters.message }, { status: s.status.filters.status });
+        const row = s.keys.find((k) => k.id === put[1]);
+        if (!row) return Response.json({ success: false, message: "no such key" }, { status: 404 });
+        let filters = s.requests.at(-1).body.filters;
+        if (filters && s.ignoreLocalCeiling) { const { localMaxUsdPerMtok: _drop, ...rest } = filters; filters = Object.keys(rest).length ? rest : null; }
+        return Response.json({ success: true, data: { key: { ...row, filters: filters ?? {} } } });
+      }
       const kind = url.pathname === "/keys" ? "keys" : url.pathname === "/keys/route-suggestion" ? "suggestion" : url.pathname === "/keys/route-dry-run" ? "dryRun" : null;
       if (!kind) return new Response("nope", { status: 404 });
       if (s.status[kind]) return Response.json({ success: false, message: s.status[kind].message }, { status: s.status[kind].status });
@@ -467,5 +477,167 @@ describe("aile route — the answer", () => {
     expect(r.code).toBe(1);
     expect(r.all).toContain("does not offer");
     noStack(r);
+  });
+});
+
+
+describe("aile keys set — a key's self-hosted rules", () => {
+  const withFilters = (filters) => ({ keys: [{ ...K1, filters }, K2] });
+  const puts = (r) => r.s.requests.filter((q) => q.method === "PUT");
+
+  it("sets the ceiling on this machine's key and keeps every other rule as stored", async () => {
+    const stored = { provider: "openrouter", maxPctOfList: 80, dedupeTools: true, sticky: false };
+    const r = await with_(["keys", "set", "--local-max-price", "2"], { stubOpts: withFilters(stored) });
+    expect(r.code).toBe(0);
+    expect(puts(r)).toHaveLength(1);
+    expect(puts(r)[0].path).toBe("/keys/k1/filters");
+    expect(puts(r)[0].body).toEqual({ filters: { ...stored, localMaxUsdPerMtok: 2 } });
+    expect(r.stdout).toMatch(/may now pay up to \$2 per million tokens/);
+    expect(r.stdout).not.toContain("does not keep");
+  });
+
+  it("an empty key gets just the ceiling; the request goes to the named key", async () => {
+    const r = await with_(["keys", "set", "--key", "work", "--local-max-price", "$0.5"]);
+    expect(r.code).toBe(0);
+    expect(puts(r)[0].path).toBe("/keys/k2/filters");
+    expect(puts(r)[0].body).toEqual({ filters: { localMaxUsdPerMtok: 0.5 } });
+  });
+
+  it("none removes the ceiling and keeps the rest; removing the last field sends null", async () => {
+    const r = await with_(["keys", "set", "--local-max-price", "none"], { stubOpts: withFilters({ localMaxUsdPerMtok: 2, sticky: false }) });
+    expect(puts(r)[0].body).toEqual({ filters: { sticky: false } });
+    expect(r.stdout).toMatch(/ceiling was dropped/);
+    const r2 = await with_(["keys", "set", "--local-max-price", "none"], { stubOpts: withFilters({ localMaxUsdPerMtok: 2 }) });
+    expect(puts(r2)[0].body).toEqual({ filters: null });
+    const r3 = await with_(["keys", "set", "--local-max-price", "off"], { stubOpts: withFilters({}) });
+    expect(r3.code).toBe(0);
+    expect(r3.stdout).toMatch(/had no self-hosted price ceiling/);
+  });
+
+  it("--allow-local no writes allowLocal:false AND drops the ceiling, and says so", async () => {
+    const r = await with_(["keys", "set", "--allow-local", "no"], { stubOpts: withFilters({ localMaxUsdPerMtok: 2, maxUsdPerMtok: 9 }) });
+    expect(r.code).toBe(0);
+    expect(puts(r)[0].body).toEqual({ filters: { maxUsdPerMtok: 9, allowLocal: false } });
+    expect(r.stdout).toMatch(/refuses self-hosted models/);
+    expect(r.stdout).toMatch(/self-hosted price ceiling was dropped too/);
+  });
+
+  it("--allow-local yes removes allowLocal; both flags together set the ceiling on a key that refused", async () => {
+    const r = await with_(["keys", "set", "--allow-local", "yes"], { stubOpts: withFilters({ allowLocal: false, sticky: false }) });
+    expect(puts(r)[0].body).toEqual({ filters: { sticky: false } });
+    const r2 = await with_(["keys", "set", "--allow-local", "yes", "--local-max-price", "3"], { stubOpts: withFilters({ allowLocal: false }) });
+    expect(puts(r2)[0].body).toEqual({ filters: { localMaxUsdPerMtok: 3 } });
+  });
+
+  it("a ceiling on a key that refuses self-hosted dies before sending, with the way out", async () => {
+    const r = await with_(["keys", "set", "--local-max-price", "2"], { stubOpts: withFilters({ allowLocal: false }) });
+    expect(r.code).toBe(1);
+    expect(r.all).toMatch(/refuses self-hosted models/);
+    expect(r.all).toContain("aile keys set --allow-local yes --local-max-price 2");
+    expect(puts(r)).toHaveLength(0);
+    const deny = await with_(["keys", "set", "--local-max-price", "2"], { stubOpts: withFilters({ dataCollection: "deny" }) });
+    expect(deny.code).toBe(1);
+    expect(deny.all).toMatch(/denies data collection/);
+    expect(puts(deny)).toHaveLength(0);
+  });
+
+  it("warns when the server dropped the field, instead of pretending it was saved", async () => {
+    const r = await with_(["keys", "set", "--local-max-price", "2"], { stubOpts: { ...withFilters({ sticky: false }), ignoreLocalCeiling: true } });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("This server does not keep a self-hosted price ceiling yet");
+    expect(r.stdout).toContain("aile chat --max-price");
+  });
+
+  it("MUST-NOT: a bad value, a contradiction or no flag at all dies before ANY request, even the listing", async () => {
+    for (const args of [
+      ["keys", "set"],
+      ["keys", "set", "--local-max-price"],
+      ["keys", "set", "--local-max-price", "0"],
+      ["keys", "set", "--local-max-price", "-1"],
+      ["keys", "set", "--local-max-price", "1001"],
+      ["keys", "set", "--local-max-price", "1000.5"],
+      ["keys", "set", "--local-max-price", "0.0000001"],
+      ["keys", "set", "--local-max-price", "abc"],
+      ["keys", "set", "--local-max-price", "2%"],
+      ["keys", "set", "--allow-local", "maybe"],
+      ["keys", "set", "--allow-local"],
+      ["keys", "set", "--allow-local", "no", "--local-max-price", "2"],
+    ]) {
+      const r = await with_(args);
+      expect(r.code).toBe(1);
+      expect(r.s.requests).toHaveLength(0);
+      noStack(r);
+    }
+  });
+
+  it("accepts the edges: 1000 and six decimals", async () => {
+    const r = await with_(["keys", "set", "--local-max-price", "1000"]);
+    expect(puts(r)[0].body).toEqual({ filters: { localMaxUsdPerMtok: 1000 } });
+    const r2 = await with_(["keys", "set", "--local-max-price", "0.000001"]);
+    expect(puts(r2)[0].body).toEqual({ filters: { localMaxUsdPerMtok: 0.000001 } });
+  });
+
+  it("the server's refusal ends the command with its sentence", async () => {
+    const r = await with_(["keys", "set", "--allow-local", "no"], { stubOpts: { status: { filters: { status: 400, message: "this key is pinned to local, so it cannot refuse it" } } } });
+    expect(r.code).toBe(1);
+    expect(r.all).toContain("this key is pinned to local");
+    noStack(r);
+  });
+
+  it("an unknown key is named, nothing is sent", async () => {
+    const r = await with_(["keys", "set", "--key", "nope", "--local-max-price", "2"]);
+    expect(r.code).toBe(1);
+    expect(r.all).toMatch(/No key on this account matches/);
+    expect(puts(r)).toHaveLength(0);
+  });
+
+  it("signed out: says so and sends nothing", async () => {
+    const s = stub();
+    try {
+      const res = await run(["keys", "set", "--local-max-price", "2"], { data: dataDir({ serverUrl: s.url, buyerKey: KEY }) });
+      expect(res.code).toBe(1);
+      expect(res.all).toContain("not signed in");
+      expect(s.requests.length).toBe(0);
+    } finally { s.stop(); }
+  });
+});
+
+describe("aile keys — the list shows a key's self-hosted rule", () => {
+  it("prints the ceiling, or that the key refuses self-hosted, and nothing for a key that says nothing", async () => {
+    const r = await with_(["keys"], { stubOpts: { keys: [{ ...K1, filters: { localMaxUsdPerMtok: 2.5 } }, { ...K2, filters: { allowLocal: false } }, { ...KSTAKE, filters: {} }] } });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("self-hosted ≤ $2.5/Mtok");
+    expect(r.stdout).toContain("self-hosted off");
+    expect(r.stdout.match(/self-hosted/g)).toHaveLength(2); // the two lines; the hint under the list says "Self-hosted rules"
+  });
+
+  it("an older server's keys (no filters at all) list as before", async () => {
+    const r = await with_(["keys"], { stubOpts: { keys: [{ ...K1, filters: undefined }] } });
+    expect(r.code).toBe(0);
+    expect(r.stdout).not.toMatch(/self-hosted ≤|self-hosted off/);
+  });
+
+  it("an unknown subcommand names `set`", async () => {
+    const r = await with_(["keys", "frobnicate"]);
+    expect(r.code).toBe(1);
+    expect(r.all).toContain("aile keys set");
+  });
+});
+
+describe("aile route --max-price", () => {
+  it("sends x-aile-max-price in the dry run's headers", async () => {
+    const r = await with_(["route", "local/llama3.1:8b", "--max-price", "2"]);
+    expect(r.code).toBe(0);
+    const q = r.s.requests.find((x) => x.path === "/keys/route-dry-run");
+    expect(q.body.headers).toEqual({ "x-aile-max-price": "2" });
+  });
+  it("a percent on a local/ model dies before any request", async () => {
+    const r = await with_(["route", "local/x", "--max-price", "80%"]);
+    expect(r.code).toBe(1);
+    expect(r.s.requests).toHaveLength(0);
+  });
+  it("without the flag the dry run's headers are as before", async () => {
+    const r = await with_(["route", "fast"]);
+    expect(r.s.requests.find((x) => x.path === "/keys/route-dry-run").body.headers ?? null).toBeNull();
   });
 });

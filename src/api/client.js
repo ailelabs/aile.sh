@@ -364,22 +364,44 @@ export const api = {
 
   /**
    * A per-model margin, 0 (free) to 1 (list). The body is `{model, margin}` and
-   * nothing else: the server refuses any `inUsd`/`outUsd`, null included, since
-   * dollar prices were retired.
+   * nothing else for a provider-served model: the server refuses any
+   * `inUsd`/`outUsd` there, null included, since dollar prices were retired.
+   *
+   * `provider: "local"` (with the RAW id the node advertises, tag and case kept)
+   * writes the margin of that one self-hosted id. Every other caller omits it and
+   * sends today's body unchanged.
    */
-  setModelMargin: ({ model, margin, ...opts }) =>
-    call("/pricing/model", { ...opts, method: "PUT", body: { model, margin } }),
+  setModelMargin: ({ model, margin, provider, ...opts }) =>
+    call("/pricing/model", { ...opts, method: "PUT", body: omitAbsent({ model, margin, provider }) }),
 
-  /** Drop a per-model margin, returning that model to the global margin. */
-  clearModelMargin: ({ model, ...opts }) =>
-    call(`/pricing/model/${encodeURIComponent(model)}`, { ...opts, method: "DELETE" }),
+  /** Drop a per-model margin, returning that model to the global margin. `provider: "local"` drops one self-hosted id's. */
+  clearModelMargin: ({ model, provider, ...opts }) =>
+    call(`/pricing/model/${encodeURIComponent(model)}${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`,
+      { ...opts, method: "DELETE" }),
 
   /**
    * Serve this model, or stop. A separate table from pricing on the server, so
    * clearing a price cannot silently re-enable something the lender turned off.
+   * `provider: "local"` switches exactly that raw self-hosted id.
    */
-  setModelDisabled: ({ model, disabled, ...opts }) =>
-    call("/pricing/model/disabled", { ...opts, method: "PUT", body: { model, disabled } }),
+  setModelDisabled: ({ model, disabled, provider, ...opts }) =>
+    call("/pricing/model/disabled", { ...opts, method: "PUT", body: omitAbsent({ model, disabled, provider }) }),
+
+  /**
+   * A sharer's own price for one SELF-HOSTED model: dollars per million tokens,
+   * input and output, and optionally a cache read (it bills at input when left
+   * out). `model` is the raw id the node advertises. The server owns the 3x-list
+   * cap, the maximum and the decimals, and answers a 400 in plain words.
+   */
+  setLocalPrice: ({ model, inUsd, outUsd, cacheReadUsd, ...opts }) =>
+    call("/pricing/model", {
+      ...opts, method: "PUT",
+      body: omitAbsent({ model, provider: "local", inUsd, outUsd, cacheReadUsd }),
+    }),
+
+  /** Back to following the list: `inUsd` and `outUsd` null clear the typed price. */
+  clearLocalPrice: ({ model, ...opts }) =>
+    call("/pricing/model", { ...opts, method: "PUT", body: { model, provider: "local", inUsd: null, outUsd: null } }),
 
   removeProvider: ({ id, ...opts }) => call(`/providers/${id}`, { ...opts, method: "DELETE" }),
 
@@ -521,6 +543,14 @@ export const api = {
 
   /** The signed-in account's buyer keys (`GET /keys` → {keys}), each with its named routes. Needs the account token. */
   listKeys: (opts = {}) => call("/keys", opts),
+
+  /**
+   * Replace a key's pinned routing filters: the WHOLE set (`PUT /keys/:id/filters`), `null` clears it. The server
+   * stores exactly what it is sent, so a caller changing one rule sends back every other rule as it read it.
+   * Answers `{key}`: the stored row, so a caller can see whether the server kept a field it does not know yet.
+   */
+  setKeyFilters: ({ id, filters, ...opts }) =>
+    call(`/keys/${encodeURIComponent(id)}/filters`, { ...opts, method: "PUT", body: { filters } }),
 
   /** Revoke a buyer key on the signed-in account, by its id (not its secret). */
   revokeKey: ({ id, ...opts }) =>

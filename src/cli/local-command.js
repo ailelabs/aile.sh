@@ -12,11 +12,13 @@
  *   aile local on | --off              start / stop lending it
  *   aile local <url>                   lend a model server you already run
  *
- * SELLING NEEDS THE RIGHT NAME. The relay sells `local/<id>` only when `<id>`
- * has a published list price, matched exactly. A model pulled under its own
- * name (`llama3.1:8b`) runs but earns nothing, so the curated models are saved
- * under the priced id (src/local/catalog.js), and every screen that names a
- * model says whether it sells — from the server's own answer, never a guess.
+ * SELLING NEEDS A PRICE. A sharer prices every `local/<id>`: untyped it follows
+ * the list price of `<id>` (matched exactly) × the margin, and a name with no
+ * list price sells only once the sharer types one (`aile rates set local/<id>
+ * --in <$> --out <$>`, or `aile local pull <model> --in <$> --out <$>`). The
+ * curated models are saved under the priced id (src/local/catalog.js), and every
+ * screen that names a model says whether it sells — from the server's own
+ * answer, never a guess.
  *
  * THIS TRAFFIC IS NOT BLIND. The model runs here, so this machine reads the
  * prompts it answers. Said wherever lending is switched on.
@@ -49,7 +51,8 @@ import { detectEngine, LlamaServer } from "../local/engine.js";
 import { chatOnce, chatStream, ChatError } from "../local/chat.js";
 import { loadManifest, saveManifest, upsertModel, removeModel, findModel } from "../local/manifest.js";
 import { modelsDir, logsDir, localDir } from "../local/paths.js";
-import { livePrices, sellState, priceText, snapshotAdvertising, addAdvertised, removeAdvertised, parseList } from "../local/sell.js";
+import { livePrices, sellState, priceText, usdText, readTypedPrice, noListHint, snapshotAdvertising, addAdvertised, removeAdvertised, parseList } from "../local/sell.js";
+import { api } from "../api/client.js";
 
 const SUBCOMMANDS = ["setup", "models", "search", "pull", "list", "ls", "rm", "remove", "run", "install", "on", "status"];
 const ENGINE_NAME = { ollama: "Ollama", llamacpp: "llama.cpp", external: "your server" };
@@ -136,7 +139,7 @@ async function engineForModels(args, config) {
 function priceCell(id, live) {
   const state = sellState(id, live);
   if (state === "priced") return priceText(live.prices.get(id));
-  if (state === "unpriced") return `${C.yellow}not sellable${C.reset}`;
+  if (state === "unpriced") return `${C.yellow}no list price${C.reset}`;
   return dim("price unknown");
 }
 
@@ -259,7 +262,7 @@ async function showStatus(args) {
     }))));
     if (!live.available) console.log(`\n  ${dim(`Prices unknown: ${live.reason}.`)}`);
     else if (rows.some((r) => r.priced === false)) {
-      console.log(`\n  ${hintText("A model with no list price is refused by the network. `aile local models` lists ones that sell.")}`);
+      console.log(`\n  ${hintText("A model with no list price sells only once you type a price: `aile rates set local/<id> --in <$> --out <$>`. `aile local models` lists ones that have one.")}`);
     }
   } else {
     console.log(`\n  ${C.yellow}No models found.${C.reset} ${dim("Pull one with")} ${cmd("aile local pull <model>")}`);
@@ -333,11 +336,38 @@ async function pullCommand(args) {
   const config = loadConfig();
   const engine = await engineForModels(args, config);
   if (!engine) die("No engine set up yet.", "Run `aile local setup`: it installs one and downloads a model in one go.");
+  // A price typed with the pull is checked before the download, so a mistyped flag costs nothing.
+  const typed = readTypedPrice(args);
+  if (typed?.error) die(typed.error, "For example `aile local pull mistral:7b --in 0.2 --out 0.6`.");
   const pre = await snapshotAdvertising(config, (c) => discoverLocalModels(c));
   const hw = detectHardware();
   const got = await pullModel({ args, config, engine, ref, hw });
   if (!got) return;
+  if (typed) await typePrice({ got, typed, config });
   reportPulled({ pre, engine, got, before: config });
+}
+
+/**
+ * Type the sharer's price for the model just pulled (`PUT /pricing/model`, provider `local`, the id the node
+ * will advertise). The pull has already happened and STANDS whatever this answers: a refusal (not signed in,
+ * no node yet, a price over the cap) is shown in the server's own words with the command that retries it.
+ * A price that took makes the model sellable, so it is advertised like a model that has a list price.
+ */
+async function typePrice({ got, typed, config }) {
+  const retry = `aile rates set local/${got.id} --in ${typed.inUsd} --out ${typed.outUsd}${typed.cacheReadUsd !== undefined ? ` --cache-read ${typed.cacheReadUsd}` : ""}`;
+  if (!config.renterToken) {
+    got.typedFailed = { message: "you are not signed in, so your price was not set", retry: `aile login, then ${retry}` };
+    return;
+  }
+  try {
+    await api.setLocalPrice({
+      model: got.id, ...typed, serverUrl: config.serverUrl, token: config.renterToken, insecure: config.allowInsecure === true,
+    });
+    got.typed = typed;
+    got.sellable = true;
+  } catch (e) {
+    got.typedFailed = { message: e?.message || "the server refused it", retry };
+  }
 }
 
 /**
@@ -362,7 +392,7 @@ async function pullModel({ args, config, engine, ref, hw, quiet = false }) {
   if (state === "priced") sellable = true;
   else if (state === "unpriced") sellable = false;
   if (!quiet && entry && state === "unpriced") {
-    console.log(warn(`${got.id} has no list price on this server right now`, "it will not sell until one is published"));
+    console.log(warn(`${got.id} has no list price on this server right now`, noListHint(got.id)));
   }
   return { ...got, sellable, live, entry };
 }
@@ -484,14 +514,21 @@ function reportPulled({ pre, engine, got, before }) {
   const adopted = adoptForLending({ config: before, pre, engine, id: got.id, sellable: got.sellable === true });
   const after = loadConfig();
   console.log();
-  if (got.sellable === true) {
+  if (got.typed) {
+    const t = got.typed;
+    console.log(ok(`Sells as ${C.cyan}local/${got.id}${C.reset}`, `your price ${usdText(t.inUsd)} in / ${usdText(t.outUsd)} out per million tokens${t.cacheReadUsd !== undefined ? `, ${usdText(t.cacheReadUsd)} for a cache read` : ""}`));
+  } else if (got.sellable === true) {
     const row = got.live?.prices?.get(got.id);
     console.log(ok(`Sells as ${C.cyan}local/${got.id}${C.reset}`, row?.priced ? `list ${priceText(row)} per million tokens` : ""));
   } else if (got.sellable === false) {
-    console.log(warn(`Not sellable: ${got.id} has no published list price`, "it runs here for your own use"));
-    console.log(`    ${hintText("`aile local models` lists models that sell.")}`);
+    console.log(warn(`${got.id} has no published list price`, noListHint(got.id)));
+    console.log(`    ${hintText("It runs here for your own use. `aile local models` lists models that have a list price.")}`);
   } else {
     console.log(info(`Could not check whether ${got.id} sells`, got.live?.reason || ""));
+  }
+  if (got.typedFailed) {
+    console.log(warn(`Your price was not set: ${got.typedFailed.message}`, "the download stands"));
+    console.log(`    ${hintText(`Try again with \`${got.typedFailed.retry}\``)}`);
   }
   if (adopted.seeded.length) {
     console.log(info(`localModels now names what is offered: ${after.localModels}`, hintText("put it back with `aile config localModels \"\"`")));
@@ -938,8 +975,8 @@ async function setupWizard(args, { startNode }) {
   const before = loadConfig();
   const { elsewhere } = servingPlan(before, engine);
   if (got.sellable === false) {
-    console.log(warn(`${got.id} has no published list price, so the network will not sell it`, "it runs here for your own use"));
-    console.log(`\n${next([["aile local models", "models that sell"], [`aile local run ${got.id}`, "talk to it"]])}\n`);
+    console.log(warn(`${got.id} has no published list price`, noListHint(got.id)));
+    console.log(`\n${next([["aile local models", "models that have a list price"], [`aile local run ${got.id}`, "talk to it"]])}\n`);
     return;
   }
   for (const l of privacyLines()) console.log(l);

@@ -56,6 +56,8 @@ beforeAll(() => {
             { id: "codex/gpt-5.5", type: "chat", display_name: "gpt-5.5 (Codex)", context_length: 1050000, max_output_tokens: 128000 },
             { id: "openrouter/some/model", type: "chat" },
             { id: "openai/dall-e", type: "image" },
+            { id: "local/llama3.1:8b", type: "chat" },
+            { id: "local/Qwen3:30b", type: "chat" },
           ],
         });
       }
@@ -226,6 +228,39 @@ describe("aile setup — writes each tool's own config, and undoes it exactly", 
     expect(fs.existsSync(m.p(".local", "share", "opencode", "auth.json"))).toBe(false);
     expect(fs.existsSync(m.p(".factory", "settings.json"))).toBe(false);
     for (const f of sc) expect(fs.existsSync(path.join(m.bin, f))).toBe(false);
+  });
+
+  it("never writes a self-hosted model into a tool's model list, even with --models all, and says what it left out", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "droid", "--mode", "both", "--models", "all", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    const droid = readJ(m.p(".factory", "settings.json")).customModels.map((e) => e.model);
+    expect(droid).toEqual(["cc/claude-sonnet-5", "codex/gpt-5.5", "openrouter/some/model"]);
+    expect(droid.some((id) => id.startsWith("local/"))).toBe(false);
+    expect(res.out).toContain("Left out 2 self-hosted models (local/…): a call to one must name the most it pays.");
+    expect(res.out).toContain("aile keys set --local-max-price 2");
+  });
+
+  it("MUST-NOT: without --models all the left-out line is not printed", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "droid", "--mode", "both", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("Left out");
+  });
+
+  it("an explicit --model local/<id> is honoured, with the line that says the key needs a ceiling", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "droid", "--mode", "both", "--model", "local/llama3.1:8b", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("local/llama3.1:8b is priced by its sharer: your key needs a self-hosted price ceiling (aile keys set --local-max-price 2), or every call is refused.");
+    expect(res.out).not.toContain("Left out");
+  });
+
+  it("a provider --model prints neither self-hosted line", async () => {
+    const m = machine();
+    const res = await run(m, ["setup", "droid", "--mode", "both", "--model", "cc/claude-opus-5", "--key", GOOD, "--yes"]);
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("self-hosted");
   });
 
   it("defaults to shortcuts for Claude Code and Codex, leaving their config alone", async () => {
