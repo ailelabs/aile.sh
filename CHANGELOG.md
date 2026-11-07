@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-07
+
 ### Added
 
 - `aile config localSlots <n>` (1 to 16, default 1): a llama.cpp model serves
