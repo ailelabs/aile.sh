@@ -49,6 +49,7 @@ Off unless you turn it on; see [Self-hosted models](https://aile.sh/docs/share/l
 | `localModels` | — | Comma-separated names to advertise. Blank asks the endpoint. |
 | `localEngine` | `external` | What runs the model: `external` (a server you run), `ollama` or `llamacpp`. Set by `aile local setup`. |
 | `localContext` | `8192` | Context window, in tokens, for models `aile local` downloads. |
+| `localSlots` | `1` | Callers a llama.cpp model serves at once (1 to 16), each with the whole `localContext`, so memory grows with it. More than `maxConcurrent` never arrive at once. Ollama decides its own. |
 | `localModelDir` | — | Where downloaded models and llama.cpp go. Blank: `%LOCALAPPDATA%\aile\local` on Windows, `~/.aile/local` elsewhere. Absolute path only. |
 
 > [!WARNING]

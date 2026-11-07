@@ -9,7 +9,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { pickAsset, serverArgs, versionAtLeast, findServerBin, endpointPort, assetBytes } from "../src/local/llamacpp.js";
+import { pickAsset, serverArgs, versionAtLeast, findServerBin, endpointPort, assetBytes, readGgufHeader, ggufHasMtp } from "../src/local/llamacpp.js";
+import { writeGguf } from "./helpers/gguf.js";
 import { LLAMACPP_PINS } from "../src/local/llamacpp-pins.js";
 import { installLlamaCpp, extractArchive, ollamaInstallPlan, runOllamaInstall, InstallError } from "../src/local/install.js";
 
@@ -78,6 +79,56 @@ describe("serverArgs", () => {
   test("refuses a bad port or no model", () => {
     expect(() => serverArgs({ gguf: "/m", port: 0 })).toThrow();
     expect(() => serverArgs({ port: 80 })).toThrow();
+  });
+
+  test("slots: one per caller, each keeping the whole context window", () => {
+    const a = serverArgs({ gguf: "/m/x.gguf", port: 8091, ctx: 8192, slots: 4 });
+    expect(a.slice(a.indexOf("-c"), a.indexOf("-c") + 4)).toEqual(["-c", "32768", "-np", "4"]);
+    for (const bad of [0, -2, 1.5, "3", null]) {
+      const b = serverArgs({ gguf: "/m/x.gguf", port: 8091, ctx: 8192, slots: bad });
+      expect(b.slice(b.indexOf("-c"), b.indexOf("-c") + 4)).toEqual(["-c", "8192", "-np", "1"]);
+    }
+  });
+
+  test("MTP drafting only when asked", () => {
+    expect(serverArgs({ gguf: "/m/x.gguf", port: 1, mtp: true }).slice(-4)).toEqual(["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]);
+    expect(serverArgs({ gguf: "/m/x.gguf", port: 1 })).not.toContain("--spec-type");
+  });
+});
+
+describe("readGgufHeader / ggufHasMtp", () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "aile-gguf-"));
+  afterAll(() => fs.rmSync(d, { recursive: true, force: true }));
+  const f = (name, spec) => writeGguf(path.join(d, name), spec);
+  const kv = { "general.architecture": "qwen35", "qwen35.block_count": 3 };
+  // ~3.6 MB of strings: the header runs past the reader's 1 MB chunks, as a real vocabulary does.
+  const vocab = { "tokenizer.ggml.tokens": Array.from({ length: 300_000 }, (_, i) => `token-${i}`) };
+
+  test("key/values and tensor names, past a vocabulary larger than one read", () => {
+    const h = readGgufHeader(f("big.gguf", { kv, arrays: vocab, tensors: ["blk.0.attn_q.weight", "blk.2.nextn.eh_proj.weight"] }));
+    expect(h.kv).toEqual(kv);
+    expect([...h.tensors]).toEqual(["blk.0.attn_q.weight", "blk.2.nextn.eh_proj.weight"]);
+  });
+
+  test("an MTP head on the last block is llama.cpp's sign; anywhere else, or none, is not", () => {
+    expect(ggufHasMtp([f("mtp.gguf", { kv, arrays: vocab, tensors: ["blk.2.nextn.eh_proj.weight"] })])).toBe(true);
+    expect(ggufHasMtp([f("early.gguf", { kv, tensors: ["blk.1.nextn.eh_proj.weight"] })])).toBe(false);
+    expect(ggufHasMtp([f("none.gguf", { kv, tensors: ["blk.2.attn_q.weight"] })])).toBe(false);
+  });
+
+  test("a split model: key/values from the first file, the head in a later one", () => {
+    const one = f("s-00001-of-00002.gguf", { kv, tensors: ["blk.0.attn_q.weight"] });
+    const two = f("s-00002-of-00002.gguf", { tensors: ["blk.2.nextn.eh_proj.weight"] });
+    expect(ggufHasMtp([one, two])).toBe(true);
+  });
+
+  test("anything unreadable answers false, never throws", () => {
+    const junk = path.join(d, "junk.gguf");
+    fs.writeFileSync(junk, "not a gguf at all");
+    const cut = path.join(d, "cut.gguf");
+    fs.writeFileSync(cut, fs.readFileSync(f("whole.gguf", { kv, tensors: ["blk.2.nextn.eh_proj.weight"] })).subarray(0, 40));
+    for (const files of [[junk], [cut], [path.join(d, "missing.gguf")], [], null]) expect(ggufHasMtp(files)).toBe(false);
+    expect(() => readGgufHeader(junk)).toThrow(/not a GGUF/);
   });
 });
 

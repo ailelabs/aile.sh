@@ -10,6 +10,25 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Added
+
+- `aile config localSlots <n>` (1 to 16, default 1): a llama.cpp model serves
+  that many callers at once instead of one at a time, each with the whole
+  `localContext`. The memory check at `aile local pull` counts every slot.
+- `aile local pull hf.co/<user>/<repo> --file <name>` downloads exactly that
+  file (its name or path in the repo; any part of a split model). llama.cpp only.
+- llama.cpp drafts with a model's MTP head when the file carries one (the tensor
+  llama.cpp itself looks for), which speeds up generation. `aile start` says so.
+
+### Changed
+
+- A Hugging Face repo with two files at one quant (an MTP and a noMTP build, a
+  base and a variant) downloads one, the plain one, and names the others, where
+  it used to download both as if they were one split model.
+- llama.cpp is pinned to b11867 (2026-10-24), from b11320. A build already
+  installed keeps running until `aile local install llamacpp` (or `aile local
+  setup`) is run again, which replaces it.
+
 ## [1.4.0] - 2026-11-05
 
 ### Added

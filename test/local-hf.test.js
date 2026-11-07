@@ -94,6 +94,37 @@ describe("pickGguf", () => {
   });
 });
 
+describe("two builds at one quant", () => {
+  // The shape of JonathanColetti/Qwen3.8-27B-Uncensored-GGUF: an MTP and a noMTP file per quant, plus a draft.
+  const files = [
+    { path: "Qwen3.8-27B-Uncensored-Q6_K.gguf", size: 224 },
+    { path: "Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf", size: 221 },
+    { path: "Qwen3.8-27B-Uncensored-draft-Q8_0.gguf", size: 32 },
+    { path: "Q8_0/Qwen3.8-27B-Uncensored-Q8_0-00001-of-00002.gguf", size: 150 },
+    { path: "Q8_0/Qwen3.8-27B-Uncensored-Q8_0-00002-of-00002.gguf", size: 140 },
+  ];
+
+  test("one build is downloaded, the plain one, and the other is named", () => {
+    const g = pickGguf(files, { quant: "Q6_K" });
+    expect(g.files.map((f) => f.path)).toEqual(["Qwen3.8-27B-Uncensored-Q6_K.gguf"]);
+    expect(g.bytes).toBe(224);
+    expect(g.alternatives).toEqual(["Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf"]);
+    expect(ggufGroups(files).get("Q8_0").files.length).toBe(2); // the draft is never a build
+  });
+
+  test("--file picks exactly that build, by name or path, any part of a split", () => {
+    expect(pickGguf(files, { file: "qwen3.8-27b-uncensored-nomtp-q6_k.gguf" }).files.map((f) => f.path)).toEqual(["Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf"]);
+    expect(pickGguf(files, { file: "Qwen3.8-27B-Uncensored-Q8_0-00002-of-00002.gguf" }).files.length).toBe(2);
+    expect(pickGguf(files, { file: "Q8_0/Qwen3.8-27B-Uncensored-Q8_0-00001-of-00002.gguf", quant: "q8_0" }).quant).toBe("Q8_0");
+  });
+
+  test("--file refuses a file it does not have, a draft, or a quant it does not match", () => {
+    expect(() => pickGguf(files, { file: "nope.gguf" })).toThrow(/no model file nope\.gguf.*Qwen3\.8-27B-Uncensored-Q6_K\.gguf/);
+    expect(() => pickGguf(files, { file: "Qwen3.8-27B-Uncensored-draft-Q8_0.gguf" })).toThrow(HfError);
+    expect(() => pickGguf(files, { file: "Qwen3.8-27B-Uncensored-noMTP-Q6_K.gguf", quant: "Q8_0" })).toThrow(/is a Q6_K build, not Q8_0/);
+  });
+});
+
 describe("listRepoFiles / pullFromHf", () => {
   test("lists files with their LFS sha256", async () => {
     const files = await listRepoFiles("me/M-GGUF");

@@ -53,30 +53,58 @@ export function quantOf(file) {
   return m ? m[1].toUpperCase() : null;
 }
 
+/** A GGUF file's build name: its path less the quant label and split suffix (`x/M-noMTP-Q8_0-00001-of-00002.gguf` → `x/M-noMTP`). */
+function buildOf(file) {
+  const base = path.basename(file);
+  const m = base.match(QUANT_RE);
+  return file.slice(0, file.length - base.length) + (m ? base.slice(0, m.index) : base);
+}
+
 /**
- * Group a repo's GGUF files by quant, with split files (`-00001-of-00003`)
- * kept together and in order.
- * @returns {Map<string, {quant: string, files: {path,size,sha256}[], bytes: number}>}
+ * Every complete build in a repo, one per (build name, quant): a single file,
+ * or every part of a split (`-00001-of-00003`) in order. Two files that only
+ * share a quant label (`M-Q8_0.gguf` and `M-noMTP-Q8_0.gguf`) are two builds.
+ * @returns {{quant: string, name: string, files: {path,size,sha256}[], bytes: number}[]}
  */
-export function ggufGroups(files) {
-  const groups = new Map();
+function ggufBuilds(files) {
+  const builds = new Map();
   for (const f of files) {
     if (!/\.gguf$/i.test(f.path) || NOT_A_MODEL.test(f.path)) continue;
     const quant = quantOf(f.path);
     if (!quant) continue;
-    const g = groups.get(quant) || { quant, files: [], bytes: 0 };
+    const name = buildOf(f.path);
+    const key = `${quant}\n${name}`;
+    const g = builds.get(key) || { quant, name, files: [], bytes: 0 };
     g.files.push(f);
     g.bytes += f.size || 0;
-    groups.set(quant, g);
+    builds.set(key, g);
   }
-  for (const g of groups.values()) {
+  for (const [key, g] of builds) {
     g.files.sort((a, b) => {
-      const pa = PART_RE.exec(a.path); const pb = PART_RE.exec(b.path);
+      const pa = a.path.match(PART_RE); const pb = b.path.match(PART_RE);
       return (pa ? Number(pa[1]) : 0) - (pb ? Number(pb[1]) : 0) || a.path.localeCompare(b.path);
     });
-    // A quant split across files must have every part, or llama.cpp cannot load it.
-    const parts = PART_RE.exec(g.files[0].path);
-    if (parts && g.files.length !== Number(parts[2])) groups.delete(g.quant);
+    // A build split across files must have every part, or llama.cpp cannot load it.
+    const parts = g.files[0].path.match(PART_RE);
+    if (parts && g.files.length !== Number(parts[2])) builds.delete(key);
+  }
+  return [...builds.values()];
+}
+
+/**
+ * One build per quant. Where a repo has several (an MTP and a noMTP file, a
+ * base and a variant), the plain one: the shortest build name. The others are
+ * named in `alternatives` (first file of each) for `--file`.
+ * @returns {Map<string, {quant: string, name: string, files: {path,size,sha256}[], bytes: number, alternatives: string[]}>}
+ */
+export function ggufGroups(files) {
+  const groups = new Map();
+  // ponytail: "plain" = shortest name, since `-noMTP`, `-abliterated` and the like add to it; --file overrides.
+  const byPlainness = ggufBuilds(files).sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
+  for (const g of byPlainness) {
+    const kept = groups.get(g.quant);
+    if (kept) kept.alternatives.push(g.files[0].path);
+    else groups.set(g.quant, { ...g, alternatives: [] });
   }
   return groups;
 }
@@ -87,12 +115,27 @@ const QUALITY_ORDER = ["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "MXFP4", "Q4_K_S", "Q
 /**
  * Choose the files to download.
  *
- * `quant` named → exactly that (case-insensitive), or an error listing what
- * the repo has. Otherwise `preferred` (the curated default) if present, then
- * the best quality whose size fits `budgetBytes`, then Q4_K_M, then the
- * smallest on offer.
+ * `file` named → the build that file belongs to (its name or its path in the
+ * repo, any part of a split), whose quant must agree with `quant` when both
+ * are given. `quant` named → exactly that (case-insensitive), or an error
+ * listing what the repo has. Otherwise `preferred` (the curated default) if
+ * present, then the best quality whose size fits `budgetBytes`, then Q4_K_M,
+ * then the smallest on offer.
  */
-export function pickGguf(files, { quant = null, preferred = null, budgetBytes = null } = {}) {
+export function pickGguf(files, { quant = null, preferred = null, budgetBytes = null, file = null } = {}) {
+  if (file) {
+    const want = String(file).toLowerCase();
+    const builds = ggufBuilds(files);
+    const g = builds.find((b) => b.files.some((f) => f.path.toLowerCase() === want || path.basename(f.path).toLowerCase() === want));
+    if (!g) {
+      const names = builds.map((b) => path.basename(b.files[0].path));
+      throw new HfError(`no model file ${file} in this repo${names.length ? `; it has ${names.slice(0, 8).join(", ")}${names.length > 8 ? ", …" : ""}` : ""}`, { code: "no-file" });
+    }
+    if (quant && String(quant).toUpperCase() !== g.quant) {
+      throw new HfError(`${file} is a ${g.quant} build, not ${String(quant).toUpperCase()}`, { code: "no-quant" });
+    }
+    return { ...g, alternatives: [] };
+  }
   const groups = ggufGroups(files);
   if (!groups.size) throw new HfError("that repo has no GGUF model files llama.cpp can load", { code: "no-gguf" });
   const available = [...groups.keys()];

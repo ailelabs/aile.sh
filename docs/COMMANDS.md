@@ -312,6 +312,7 @@ aile local http://127.0.0.1:1234        # share a server you already run, and tu
 | `--engine <ollama\|llamacpp>` | Which engine runs the model. Default: Ollama if it is here, else llama.cpp. |
 | `--model <id>` | `setup` without the model menu. |
 | `--quant <name>` | A specific build, for example `Q8_0`. Default: 4-bit (`Q4_K_M`). |
+| `--file <name>` | llama.cpp only: exactly this file from the Hugging Face repo (its name or path; any part of a split model). Where a repo has two files at one quant, `pull` takes the plain one and names the others. |
 | `--ctx <tokens>` | Context window, at least 2048. Default: the `localContext` setting (8192). |
 | `--accel <cuda\|vulkan\|cpu>` | Which llama.cpp build to install. Default: picked from your GPU. `--cpu` is `--accel cpu`. |
 | `--yes` | No questions: installs, downloads and shares with the defaults. |

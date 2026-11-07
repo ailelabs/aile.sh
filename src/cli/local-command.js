@@ -45,7 +45,7 @@ import { detectHardware, describeHardware, fit, FIT_LABEL, FIT_RANK, diskFree } 
 import * as ollama from "../local/ollama.js";
 import { listRepoFiles, pickGguf, pullFromHf } from "../local/hf.js";
 import { installLlamaCpp, ollamaInstallPlan, runOllamaInstall, InstallError } from "../local/install.js";
-import { pickAsset, assetBytes, serverArgs, endpointPort, LLAMACPP_DEFAULT_ENDPOINT } from "../local/llamacpp.js";
+import { pickAsset, assetBytes, serverArgs, endpointPort, ggufHasMtp, LLAMACPP_DEFAULT_ENDPOINT } from "../local/llamacpp.js";
 import { LLAMACPP_PINS } from "../local/llamacpp-pins.js";
 import { detectEngine, LlamaServer } from "../local/engine.js";
 import { chatOnce, chatStream, ChatError } from "../local/chat.js";
@@ -380,6 +380,9 @@ async function pullModel({ args, config, engine, ref, hw, quiet = false }) {
   const entry = r.kind === "curated" ? r.entry : null;
   const quant = args.quant ? String(args.quant) : r.quant || null;
   const ctx = ctxFor(args, config, entry);
+  if (args.file !== undefined && engine === "ollama") {
+    die("--file picks a file for llama.cpp; Ollama chooses its own from the quant.", "Add `--engine llamacpp`, or name a quant: `hf.co/<user>/<repo>:Q8_0`.");
+  }
 
   const got = engine === "ollama"
     ? await pullOllama({ config, r, entry, quant, ctx, hw })
@@ -452,7 +455,7 @@ async function pullOllama({ config, r, entry, quant, ctx, hw }) {
   return { id, sellId: entry ? entry.id : null, sizeBytes: size, tag };
 }
 
-async function pullLlama({ config, r, entry, quant, ctx, hw }) {
+async function pullLlama({ config, r, entry, quant, ctx, hw, args = {} }) {
   const manifest = loadManifest();
   if (!manifest.engines.llamacpp?.bin || !fs.existsSync(manifest.engines.llamacpp.bin)) {
     die("llama.cpp is not installed here.", "Run `aile local install llamacpp`, or `aile local setup --engine llamacpp`.");
@@ -469,14 +472,20 @@ async function pullLlama({ config, r, entry, quant, ctx, hw }) {
   } catch (e) {
     die(e.message);
   }
+  const file = args.file !== undefined ? String(args.file) : null;
   let group;
   try {
-    group = pickGguf(files, { quant, preferred: entry?.hf.quant || null });
+    group = pickGguf(files, { quant, preferred: entry?.hf.quant || null, file });
   } catch (e) {
-    die(e.message, e.code === "no-quant" ? "Pick one with --quant <name>." : null);
+    die(e.message, e.code === "no-quant" ? "Pick one with --quant <name>." : e.code === "no-file" ? "Name one of those with --file <name>." : null);
+  }
+  if (group.alternatives.length) {
+    const names = group.alternatives.map((p) => path.basename(p));
+    console.log(info(`Taking ${path.basename(group.files[0].path)}`, `this repo also has ${names.join(", ")} at ${group.quant}; pick one with --file <name>`));
   }
   const id = entry ? entry.id : repo.toLowerCase().replace(/-gguf$/, "");
-  const where = fit(group.bytes, hw, ctx);
+  // Every slot holds its own context window, so memory is checked for all of them.
+  const where = fit(group.bytes, hw, ctx * (config.localSlots || 1));
   if (where === "no") console.log(warn(`This build is likely too big for this machine`, `${formatBytes(group.bytes)}; ${describeHardware(hw)}`));
   checkDisk(modelsDir(config), group.bytes, "Free some space, or point `aile config localModelDir <path>` at a bigger disk.");
 
@@ -491,7 +500,7 @@ async function pullLlama({ config, r, entry, quant, ctx, hw }) {
     bar.succeed(`${pulled.reused ? "Already downloaded" : "Downloaded"} ${repo} ${group.quant} (${formatBytes(group.bytes)})`);
   } catch (e) {
     bar.fail(`Download of ${repo} stopped`);
-    if (stoppedByUser(e, signal)) die("Stopped.", `Run the same command again to resume where it left off: \`aile local pull ${entry ? entry.id : `hf.co/${repo}:${group.quant}`}\``, { code: 130 });
+    if (stoppedByUser(e, signal)) die("Stopped.", `Run the same command again to resume where it left off: \`aile local pull ${entry ? entry.id : `hf.co/${repo}:${group.quant}`}${file ? ` --file ${file}` : ""}\``, { code: 130 });
     die(e.message);
   } finally {
     release();
@@ -673,7 +682,10 @@ async function reachModel(config, name) {
     if (!bin) die("llama.cpp is not installed.", "`aile local install llamacpp`");
     const server = new LlamaServer({
       bin, base, logFile: path.join(logsDir(config), "llama-server.log"),
-      args: serverArgs({ gguf: entry.files[0].path, port: endpointPort(base), alias: entry.id, ctx: entry.ctx || config.localContext, gpu: entry.gpu !== false }),
+      args: serverArgs({
+        gguf: entry.files[0].path, port: endpointPort(base), alias: entry.id, ctx: entry.ctx || config.localContext, gpu: entry.gpu !== false,
+        mtp: ggufHasMtp(entry.files.map((f) => f.path)),
+      }),
     });
     const up = await withSpinner(`Loading ${name}…`, server.start());
     if (!up) { server.kill(); die(`llama-server did not start; see ${server.logFile}`); }

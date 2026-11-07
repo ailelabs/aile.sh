@@ -3,26 +3,26 @@
  *
  * The llama.cpp build `aile local` installs, with each archive's sha256 as
  * GitHub publishes it. A download that does not match is deleted and refused.
- * Release: https://github.com/ggml-org/llama.cpp/releases/tag/b11320 (2026-10-01)
+ * Release: https://github.com/ggml-org/llama.cpp/releases/tag/b11867 (2026-10-24)
  */
 
 export const LLAMACPP_PINS = {
-  "tag": "b11320",
+  "tag": "b11867",
   "assets": {
     "win-x64-cpu": {
-      "file": "llama-b11320-bin-win-cpu-x64.zip",
-      "size": 19275015,
-      "sha256": "20661e00d6e7a98cecf87342af12d6bf836803229000cf19b338521273bd1fc1"
+      "file": "llama-b11867-bin-win-cpu-x64.zip",
+      "size": 24180799,
+      "sha256": "c5de24066a671fd640fc3c6e15549222e48159dd7c8187ce55979085258d2fa2"
     },
     "win-x64-vulkan": {
-      "file": "llama-b11320-bin-win-vulkan-x64.zip",
-      "size": 33208164,
-      "sha256": "20e11c93085112d15bad9716531954c6752024c023153c96b493349041ae5779"
+      "file": "llama-b11867-bin-win-vulkan-x64.zip",
+      "size": 36996961,
+      "sha256": "80eb39f3b852bebfa05bd03aad950ed6fce94aefe2ad2903505f3ed543e200ce"
     },
     "win-x64-cuda": {
-      "file": "llama-b11320-bin-win-cuda-12.4-x64.zip",
-      "size": 263401101,
-      "sha256": "f6c0cbfe03763136ed7744d1b4d12fe085534153b3d2f0fabd2edc0dddcf4977",
+      "file": "llama-b11867-bin-win-cuda-12.4-x64.zip",
+      "size": 272430645,
+      "sha256": "ef571091304a27547be9c1376530a9a77d92db823e5f0f64cb7112b3c1165ca7",
       "extra": {
         "file": "cudart-llama-bin-win-cuda-12.4-x64.zip",
         "size": 391443627,
@@ -31,45 +31,45 @@ export const LLAMACPP_PINS = {
       "minDriver": "551.61"
     },
     "win-arm64-cpu": {
-      "file": "llama-b11320-bin-win-cpu-arm64.zip",
-      "size": 12117796,
-      "sha256": "6d4fc02dd3e45d3ebd919e098bff317b9bc06879476d79ae725be9522de9311d"
+      "file": "llama-b11867-bin-win-cpu-arm64.zip",
+      "size": 12799286,
+      "sha256": "d5e479d40278f67c1bdbd2040eefeb6943e7e2862033b10050bd4d2b3e841887"
     },
     "macos-arm64": {
-      "file": "llama-b11320-bin-macos-arm64.tar.gz",
-      "size": 11827796,
-      "sha256": "f6f337fc7d2ff9260f53177cf4fe6bbf6b0f7faa75a49fb224aaf66885a5c956"
+      "file": "llama-b11867-bin-macos-arm64.tar.gz",
+      "size": 16247220,
+      "sha256": "1e5d544c0db4e6bdf0f46792667951928ea7d2bea287ad2f04801539dbf1e6ee"
     },
     "macos-x64": {
-      "file": "llama-b11320-bin-macos-x64.tar.gz",
-      "size": 11384588,
-      "sha256": "ca6d7198ac258466ec109ef81fd0700467758218a74a4736936876c56e7ff1d1"
+      "file": "llama-b11867-bin-macos-x64.tar.gz",
+      "size": 11987227,
+      "sha256": "b25da0bb33c8d35329567ac0725db4191aac3039141792ca9f373c3a4b4324a1"
     },
     "linux-x64-cpu": {
-      "file": "llama-b11320-bin-ubuntu-x64.tar.gz",
-      "size": 17544875,
-      "sha256": "ef1856938dc1434138ce53688791eb0d2d64cf46e309a0942a12bba3366c0919"
+      "file": "llama-b11867-bin-ubuntu-x64.tar.gz",
+      "size": 22438866,
+      "sha256": "e9a5c784a62afc5b18badf058f69477c03b6695aaa3c842e78b801361db47ee2"
     },
     "linux-x64-vulkan": {
-      "file": "llama-b11320-bin-ubuntu-vulkan-x64.tar.gz",
-      "size": 31492038,
-      "sha256": "5fb648c3fd7ea35e4a4a05b53db6a82e1f10e049c6cfc22845d7c6c3481e454b"
+      "file": "llama-b11867-bin-ubuntu-vulkan-x64.tar.gz",
+      "size": 35104620,
+      "sha256": "48623191c3df29acfb6c5414c09645e4b3b459d236510c4e8558c94daef345d3"
     },
     "linux-x64-cuda": {
-      "file": "llama-b11320-bin-ubuntu-cuda-12.8-x64.tar.gz",
-      "size": 171370437,
-      "sha256": "0e1ff5490869eef0479f95df094bdc75d87890882f687d3d537192eefff87861",
+      "file": "llama-b11867-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "size": 178018160,
+      "sha256": "77b4de942ca45e10a5c52ced05a1060efde524bc8d4e208dcb29f4eef830a2e1",
       "extra": {
-        "file": "cudart-llama-b11320-bin-ubuntu-cuda-12.8-x64.tar.gz",
-        "size": 594377651,
-        "sha256": "8c32c1c07568395f84bd8b308293c889bad775037f82a7423dede6900827e42a"
+        "file": "cudart-llama-b11867-bin-ubuntu-cuda-12.8-x64.tar.gz",
+        "size": 594377553,
+        "sha256": "8b585784a045b94aae8288ddf827cc68a914fb50b3dbfee32eca174b548b2d70"
       },
       "minDriver": "570.26"
     },
     "linux-arm64-cpu": {
-      "file": "llama-b11320-bin-ubuntu-arm64.tar.gz",
-      "size": 13590823,
-      "sha256": "88589b963d8e2ffd2d4df2f542ed7e301fb636b637c99081f5d58646aee20a9a"
+      "file": "llama-b11867-bin-ubuntu-arm64.tar.gz",
+      "size": 18154091,
+      "sha256": "85e3521348f6056a53f00430954bb9ba8007432202005dbf3ae963d0fc03ee27"
     }
   }
 };

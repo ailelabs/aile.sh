@@ -156,6 +156,20 @@ export const SCHEMA = {
     group: "Self-hosted",
     describe: "context window, in tokens, for models aile downloads",
   },
+  /**
+   * Callers a llama.cpp model serves at once (`llama-server -np`). Each keeps
+   * the whole `localContext`, so memory for it grows with this number. The
+   * relay sends a node up to `maxConcurrent` streams; past this many they
+   * wait their turn in llama-server's queue. Ollama decides its own.
+   */
+  localSlots: {
+    type: "int",
+    default: 1,
+    min: 1,
+    max: 16,
+    group: "Self-hosted",
+    describe: "callers a llama.cpp model serves at once, each with the whole context window",
+  },
   shareCountry: {
     type: "bool",
     default: false,

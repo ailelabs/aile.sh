@@ -12,6 +12,7 @@ import { EventEmitter } from "node:events";
 import { detectEngine, LlamaServer, ensureEngine, stopManagedEngine } from "../src/local/engine.js";
 import { saveManifest, emptyManifest } from "../src/local/manifest.js";
 import { startStubOllama } from "./helpers/stub-ollama.js";
+import { writeGguf } from "./helpers/gguf.js";
 
 const FAKE = path.join(import.meta.dirname, "helpers", "fake-llama-server.js");
 const freePort = () => new Promise((res) => { const s = net.createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });
@@ -112,6 +113,34 @@ describe("ensureEngine", () => {
     stopManagedEngine();
     for (let i = 0; i < 40 && (await detectEngine(base)).kind !== "down"; i++) await Bun.sleep(100);
     expect((await detectEngine(base)).kind).toBe("down");
+  }, 30_000);
+
+  test("localSlots callers at once, and MTP drafting when the file carries the head", async () => {
+    const port = await freePort();
+    const base = `http://127.0.0.1:${port}`;
+    const gguf = writeGguf(path.join(process.env.AILE_DATA_DIR, "mtp.gguf"), {
+      kv: { "general.architecture": "qwen35", "qwen35.block_count": 2 },
+      tensors: ["blk.0.attn_q.weight", "blk.1.nextn.eh_proj.weight"],
+    });
+    const argsFile = path.join(process.env.AILE_DATA_DIR, "llama-args.jsonl");
+    fs.rmSync(argsFile, { force: true });
+    process.env.FAKE_LLAMA_ARGS_FILE = argsFile;
+    try {
+      saveManifest({
+        ...emptyManifest(),
+        engines: { llamacpp: { tag: "b1", key: "x", dir: path.dirname(FAKE), bin: FAKE } },
+        models: [{ id: "x/mtp", engine: "llamacpp", files: [{ path: gguf }], ctx: 4096, gpu: false }],
+        active: "x/mtp",
+      });
+      const r = await ensureEngine({ localEnabled: true, localEngine: "llamacpp", localEndpoint: base, localSlots: 3 });
+      expect(r.error).toBeNull();
+      expect(r.note).toBe("started llama-server with x/mtp (3 callers at once, MTP drafting on)");
+      const argv = JSON.parse(fs.readFileSync(argsFile, "utf8").trim().split("\n").at(-1));
+      expect(argv.slice(argv.indexOf("-c"), argv.indexOf("-c") + 4)).toEqual(["-c", "12288", "-np", "3"]);
+      expect(argv.slice(-4)).toEqual(["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]);
+    } finally {
+      delete process.env.FAKE_LLAMA_ARGS_FILE;
+    }
   }, 30_000);
 
   test("a llama-server left running with a different model is not adopted", async () => {
