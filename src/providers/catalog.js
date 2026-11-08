@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 35 providers.
+ * 36 providers.
  */
 
 export const PROVIDERS = [
@@ -649,6 +649,22 @@ export const PROVIDERS = [
       "verifyUrl": "https://api.particle.ai/v1/models",
       "prefix": "pai-",
       "keyUrl": "https://platform.particle.ai"
+    },
+    "transport": {
+      "auth": {
+        "combined": true,
+        "header": "Authorization",
+        "scheme": "bearer"
+      }
+    }
+  },
+  {
+    "id": "peracomputing",
+    "name": "Pera Computing",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.peracomputing.com",
+      "verifyUrl": "https://api.peracomputing.com/v1/usage"
     },
     "transport": {
       "auth": {
