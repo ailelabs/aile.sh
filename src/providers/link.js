@@ -17,6 +17,7 @@
  */
 
 import { api } from "../api/client.js";
+import { isInteractive, promptSecret } from "../cli/prompt.js";
 import { loadConfig } from "../relay/config.js";
 import { linkInputs } from "./apikey.js";
 import { linkProvider } from "./flows.js";
@@ -70,6 +71,19 @@ export function browserOpenCommand(url, platform = process.platform) {
   return { cmd: platform === "darwin" ? "open" : "xdg-open", args: [String(url)] };
 }
 
+/**
+ * The paste half of a browser link, or null where nothing can be typed.
+ *
+ * Shown, not masked: the pasted address is a few hundred characters, and a row
+ * of bullets that long says nothing about whether the right thing landed. What
+ * it carries is an authorization code that is single-use and worthless without
+ * the PKCE verifier only this process holds, so the screen leaks nothing usable.
+ */
+function defaultReadPaste() {
+  if (!isInteractive()) return null;
+  return (question, { signal } = {}) => promptSecret(question, { signal, mask: null });
+}
+
 /** Lazily resolved so the CLI works headless where no opener exists. */
 async function defaultOpenBrowser(url) {
   const { spawn } = await import("node:child_process");
@@ -90,6 +104,9 @@ export async function connectProvider(providerId, {
   insecure = false,
   log = console.log,
   openBrowser = defaultOpenBrowser,
+  // Where a browser sign-in finished on another device is pasted back in (a
+  // node on a VPS has no browser of its own). See defaultReadPaste.
+  readPaste = defaultReadPaste(),
   // A lender's own name for this account, and the key that tells two accounts
   // of one provider apart when the provider gives us nothing better. An
   // attested `subject` always outranks the key server-side, so passing one can
@@ -136,6 +153,7 @@ export async function connectProvider(providerId, {
 
   const { suggestedLabel = null, probed = null, ...tokens } = await runFlow(providerId, {
     openBrowser,
+    readPaste,
     log,
     // The nonce reaches the provider ONLY where the server can check what comes
     // back. `attestable` is the server's own answer about its JWKS table, so

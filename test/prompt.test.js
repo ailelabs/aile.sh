@@ -89,6 +89,18 @@ describe("promptSecret on a terminal", () => {
     expect((output.written.match(/\*/g) || []).length).toBe(4);
   });
 
+  it("echoes the characters themselves when mask is null", async () => {
+    // For a pasted OAuth callback address: hundreds of characters, harmless to
+    // show, and a row of bullets that long says nothing about what landed.
+    const input = fakeTty(), output = capture();
+    const p = promptSecret("> ", { input, output, mask: null });
+    await tick();
+    input.write("http://localhost:1/callback?code=abc");
+    input.write("\r");
+    expect(await p).toBe("http://localhost:1/callback?code=abc");
+    expect(output.written).toContain("http://localhost:1/callback?code=abc");
+  });
+
   it("restores raw mode when the line is submitted", async () => {
     const input = fakeTty(), output = capture();
     const p = promptSecret("> ", { input, output });

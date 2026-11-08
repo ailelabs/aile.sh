@@ -10,6 +10,15 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Fixed
+
+- `aile connect` for a sign-in account (Claude Code, Codex, xAI, Cline,
+  Antigravity, iFlow, GitLab Duo) can be finished from another device. On a
+  server or over SSH, approve in your own browser, copy the address of the
+  localhost page it lands on (the page will not load; that is expected), and
+  paste it at the prompt. The CLI used to wait five minutes for a localhost
+  callback that could never reach it.
+
 ## [1.5.0] - 2026-11-07
 
 ### Added

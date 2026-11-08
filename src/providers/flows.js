@@ -178,6 +178,117 @@ function listenForCallback({ fixedPort = 0, callbackPath = "/callback" } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Pasted callback: a sign-in finished on another device
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the provider's redirect out of what a lender pasted.
+ *
+ * WHY. The redirect goes to `http://localhost:<port>`, which is only this
+ * machine when the browser runs on this machine. A node on a VPS, reached over
+ * SSH, has no browser: the lender signs in on their laptop, and the provider
+ * sends that laptop's browser to a localhost page that does not load. The code
+ * is in the address bar all the same, so the lender copies the address and
+ * pastes it here. Nothing else needs to change: the provider checked the
+ * redirect URI when it issued the code, and nothing dials it again.
+ *
+ * Takes the whole address, its query alone (`code=…&state=…`), or the bare
+ * code (`code` or `code#state`, the form Anthropic's own page shows). Returns
+ * the callback's query as an object, or null when the text holds no code.
+ *
+ * The sign-in link this process printed is refused, because Claude's carries a
+ * literal `code=true` and would otherwise read as a code: the link is the one
+ * thing a lender is most likely to copy back by mistake.
+ */
+export function parsePastedCallback(text) {
+  const s = String(text ?? "")
+    // Terminal bracketed-paste markers, should the terminal still be sending them.
+    .replace(/\x1b?\[20[01]~/g, "")
+    .trim()
+    .replace(/^["'<]+|["'>]+$/g, "");
+  if (!s) return null;
+
+  // A fragment is never part of the query: the browser does not send it to the
+  // listener either, so a pasted address reads exactly as the listener would.
+  let query = null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
+    let u;
+    try { u = new URL(s); } catch { return null; }
+    query = u.searchParams;
+  } else if (s.includes("?")) {
+    // The address without its scheme (`localhost:1455/auth/callback?code=…`).
+    query = new URLSearchParams(s.slice(s.indexOf("?")).split("#")[0]);
+  } else if (/(^|&)(code|error)=/.test(s)) {
+    query = new URLSearchParams(s.split("#")[0]);
+  }
+
+  if (query) {
+    if (query.has("client_id") || query.has("code_challenge")) return null;
+    const params = Object.fromEntries(query);
+    return params.code || params.error ? params : null;
+  }
+
+  // A bare code. Anything with whitespace in it is prose, and anything short is
+  // a stray word: every provider here issues codes far longer than this.
+  if (/\s/.test(s) || s.length < 12) return null;
+  return { code: s };
+}
+
+/** The state a callback came back with: its own field, or appended as `code#state`. */
+function returnedStateOf(params) {
+  if (params.state) return params.state;
+  const code = String(params.code || "");
+  return code.includes("#") ? code.slice(code.indexOf("#") + 1) : "";
+}
+
+/**
+ * Wait for the redirect on the loopback listener AND on a paste prompt; the
+ * first one home wins and the other is stopped.
+ *
+ * Both are live because nothing tells us where the browser is. On a laptop the
+ * listener answers and the prompt disappears on its own; on a VPS the prompt is
+ * the only way the code can arrive. A paste that is not a callback, or that
+ * belongs to an earlier attempt (another state), is said and asked for again,
+ * because a lender who copied the wrong thing has done nothing that should cost
+ * them the sign-in. The listener's five-minute timeout bounds both.
+ */
+async function awaitCallback(cb, { readPaste, log, state }) {
+  if (!readPaste) return cb.wait();
+
+  const stop = new AbortController();
+  const pasted = (async () => {
+    for (;;) {
+      const entered = await readPaste("  Or paste the address here > ", { signal: stop.signal });
+      if (entered === null) return null;           // the listener won
+      if (!String(entered).trim()) continue;       // an empty enter is no answer
+      const params = parsePastedCallback(entered);
+      if (!params) {
+        log("  That holds no sign-in code. Paste the address your browser landed on after you approved.");
+        continue;
+      }
+      const back = returnedStateOf(params);
+      if (!params.error && back && back !== state) {
+        log("  That address is from an earlier sign-in. Use the link above, then paste where it lands.");
+        continue;
+      }
+      return params;
+    }
+  })();
+
+  try {
+    return await Promise.race([
+      cb.wait(),
+      // Only an actual paste may win: null means this side was stopped.
+      pasted.then((p) => p || new Promise(() => {})),
+    ]);
+  } finally {
+    stop.abort();
+    // Let the prompt restore the terminal before anything else prints.
+    await pasted.catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Token exchange
 // ---------------------------------------------------------------------------
 
@@ -213,7 +324,7 @@ function normalizeTokens(raw) {
 // Flow: authorization code + PKCE
 // ---------------------------------------------------------------------------
 
-async function authcodeFlow(provider, { openBrowser, log, nonce }) {
+async function authcodeFlow(provider, { openBrowser, log, nonce, readPaste = null }) {
   const o = provider.oauth;
 
   // Operator-gated providers (gitlab-duo with no GITLAB_DUO_OAUTH_CLIENT_ID)
@@ -269,11 +380,16 @@ async function authcodeFlow(provider, { openBrowser, log, nonce }) {
 
   log(`Opening your browser to authorize ${provider.name}…`);
   log(`If it does not open, visit:\n  ${authUrl}`);
+  if (readPaste) {
+    log(`\nSigning in on another device (this is a server, or you are on SSH)?`);
+    log(`After you approve, the browser goes to a localhost page that will not load.`);
+    log(`Copy that page's address from the address bar and paste it below.\n`);
+  }
   await openBrowser(authUrl);
 
   let cbParams;
   try {
-    cbParams = await cb.wait();
+    cbParams = await awaitCallback(cb, { readPaste, log, state });
   } finally {
     cb.close();
   }
@@ -732,6 +848,11 @@ export function needsApiKey(id) {
  */
 export async function linkProvider(providerId, {
   openBrowser, log = console.log, nonce = null, apiKey = null, inputs = null,
+  // `(question, { signal }) => Promise<string | null>`: a prompt the authcode
+  // flows race against their loopback listener, so a sign-in finished on
+  // another device can be pasted in. Null (the default) waits on the listener
+  // alone, which is all a caller with no terminal can do.
+  readPaste = null,
 } = {}) {
   const provider = getProvider(providerId);
   if (!provider) throw new Error(`Unknown provider: ${providerId}`);
@@ -742,7 +863,7 @@ export async function linkProvider(providerId, {
   }
   if (NEEDS_BROWSER.has(provider.flow) && !openBrowser) throw new Error("openBrowser is required");
 
-  const tokens = await flow(provider, { openBrowser, log, nonce, apiKey, inputs });
+  const tokens = await flow(provider, { openBrowser, log, nonce, apiKey, inputs, readPaste });
   if (!tokens.accessToken) throw new Error(`${provider.name} returned no access token`);
   return { provider: providerId, ...tokens };
 }

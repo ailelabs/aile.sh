@@ -199,7 +199,9 @@ export function promptSecret(question, {
           hotkeys[ch.toLowerCase()]({ output });
           continue;
         }
-        if (ch >= " ") { value += ch; output.write(mask); }
+        // `mask: null` echoes the character itself, for a value that is long
+        // and harmless to show (a pasted OAuth callback address).
+        if (ch >= " ") { value += ch; output.write(mask ?? ch); }
       }
     }
 
