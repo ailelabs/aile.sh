@@ -317,6 +317,7 @@ export const COMMANDS = [
       ["aile local pull qwen/qwen3-8b", "download one (a curated id or an Ollama tag)"],
       ["aile local pull hf.co/<user>/<repo>", "any GGUF on Hugging Face (add :Q8_0 for a quant, --file <name> for one file)"],
       ["aile config localSlots 4", "llama.cpp serves 4 callers at once (each keeps the whole context)"],
+      ["aile config localCpuMoe 20", "keep the experts of 20 MoE layers in RAM, for a model bigger than the GPU"],
       ["aile local pull mistral:7b --in 0.1 --out 0.3", "download it and type its price (--cache-read optional)"],
       ["aile local list", "what is downloaded"],
       ["aile local run <model> \"hi\"", "talk to it; no prompt opens a chat"],

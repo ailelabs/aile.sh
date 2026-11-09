@@ -94,6 +94,13 @@ describe("serverArgs", () => {
     expect(serverArgs({ gguf: "/m/x.gguf", port: 1, mtp: true }).slice(-4)).toEqual(["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]);
     expect(serverArgs({ gguf: "/m/x.gguf", port: 1 })).not.toContain("--spec-type");
   });
+
+  test("experts in RAM only when asked, and only with the GPU on", () => {
+    const a = serverArgs({ gguf: "/m/x.gguf", port: 1, cpuMoe: 20 });
+    expect(a.slice(a.indexOf("-ngl"), a.indexOf("-ngl") + 4)).toEqual(["-ngl", "999", "--n-cpu-moe", "20"]);
+    for (const off of [0, -1, 1.5, "20", undefined]) expect(serverArgs({ gguf: "/m/x.gguf", port: 1, cpuMoe: off })).not.toContain("--n-cpu-moe");
+    expect(serverArgs({ gguf: "/m/x.gguf", port: 1, gpu: false, cpuMoe: 20 })).not.toContain("--n-cpu-moe");
+  });
 });
 
 describe("readGgufHeader / ggufHasMtp", () => {

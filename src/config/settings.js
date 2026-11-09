@@ -170,6 +170,20 @@ export const SCHEMA = {
     group: "Self-hosted",
     describe: "callers a llama.cpp model serves at once, each with the whole context window",
   },
+  /**
+   * Mixture-of-experts layers whose expert weights stay in system RAM
+   * (`llama-server --n-cpu-moe`), so a model larger than the GPU still runs
+   * with attention on the GPU. Slower; 0 keeps everything on the GPU. A number
+   * at or above the model's layer count keeps every expert in RAM.
+   */
+  localCpuMoe: {
+    type: "int",
+    default: 0,
+    min: 0,
+    max: 256,
+    group: "Self-hosted",
+    describe: "MoE layers whose experts a llama.cpp model keeps in system RAM (0 = all on the GPU)",
+  },
   shareCountry: {
     type: "bool",
     default: false,

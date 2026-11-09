@@ -192,10 +192,12 @@ export async function ensureEngine(config, { log = () => {} } = {}) {
 
     const slots = config.localSlots || 1;
     const mtp = ggufHasMtp(model.files.map((f) => f.path));
-    const args = serverArgs({ gguf, port: endpointPort(base), alias: model.id, ctx: model.ctx || config.localContext || 8192, gpu: model.gpu !== false, slots, mtp });
+    const cpuMoe = config.localCpuMoe || 0;
+    // Offloading experts says the GPU is wanted, even for a model `pull` judged too big for it.
+    const args = serverArgs({ gguf, port: endpointPort(base), alias: model.id, ctx: model.ctx || config.localContext || 8192, gpu: model.gpu !== false || cpuMoe > 0, slots, mtp, cpuMoe });
     managed = new LlamaServer({ bin, args, base, logFile: path.join(logsDir(config), "llama-server.log"), log });
     const ok = await managed.start();
-    const how = [slots > 1 ? `${slots} callers at once` : null, mtp ? "MTP drafting on" : null].filter(Boolean).join(", ");
+    const how = [slots > 1 ? `${slots} callers at once` : null, mtp ? "MTP drafting on" : null, cpuMoe > 0 ? `experts of ${cpuMoe} layers in RAM` : null].filter(Boolean).join(", ");
     return ok
       ? { engine, note: `started llama-server with ${model.id}${how ? ` (${how})` : ""}`, error: null }
       : { engine, note: null, error: `llama-server did not come up; see ${managed.logFile}` };

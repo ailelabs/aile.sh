@@ -50,6 +50,7 @@ Off unless you turn it on; see [Self-hosted models](https://aile.sh/docs/share/l
 | `localEngine` | `external` | What runs the model: `external` (a server you run), `ollama` or `llamacpp`. Set by `aile local setup`. |
 | `localContext` | `8192` | Context window, in tokens, for models `aile local` downloads. |
 | `localSlots` | `1` | Callers a llama.cpp model serves at once (1 to 16), each with the whole `localContext`, so memory grows with it. More than `maxConcurrent` never arrive at once. Ollama decides its own. |
+| `localCpuMoe` | `0` | Mixture-of-experts layers whose expert weights a llama.cpp model keeps in system RAM (0 to 256; llama.cpp's `--n-cpu-moe`). A model bigger than the GPU then runs with attention on the GPU, slower. At or above the model's layer count, every expert stays in RAM. Turns the GPU on even for a model `aile local pull` called too big. |
 | `localModelDir` | — | Where downloaded models and llama.cpp go. Blank: `%LOCALAPPDATA%\aile\local` on Windows, `~/.aile/local` elsewhere. Absolute path only. |
 
 > [!WARNING]

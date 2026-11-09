@@ -10,6 +10,13 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Added
+
+- `aile config localCpuMoe <n>` (0 to 256, default 0): a llama.cpp model keeps
+  the experts of its first `n` mixture-of-experts layers in system RAM
+  (`--n-cpu-moe`), so a model bigger than the GPU still runs with the rest on
+  the GPU. Slower; set `n` to the layer count or above for every expert.
+
 ## [1.5.3] - 2026-11-09
 
 ### Changed

@@ -87,8 +87,9 @@ export function findServerBin(dir, platform = process.platform) {
  * given `ctx × slots` and every caller keeps the whole `ctx`. `--alias` is the
  * name `/v1/models` reports, which is the name the model is sold under. `mtp`
  * (the file carries an MTP head, `ggufHasMtp`) turns on drafting with it.
+ * `cpuMoe` keeps the experts of that many MoE layers in system RAM.
  */
-export function serverArgs({ gguf, port, alias, ctx = 8192, gpu = true, slots = 1, mtp = false }) {
+export function serverArgs({ gguf, port, alias, ctx = 8192, gpu = true, slots = 1, mtp = false, cpuMoe = 0 }) {
   if (!gguf) throw new Error("serverArgs needs a model file");
   const p = Number(port);
   if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error(`not a port: ${port}`);
@@ -101,6 +102,7 @@ export function serverArgs({ gguf, port, alias, ctx = 8192, gpu = true, slots = 
     "-c", String(ctx * n),
     "-np", String(n),
     "-ngl", gpu ? "999" : "0",
+    ...(gpu && Number.isInteger(cpuMoe) && cpuMoe > 0 ? ["--n-cpu-moe", String(cpuMoe)] : []),
     "--jinja",
     // ponytail: 2 drafted tokens, the n-max the model cards that ship MTP heads recommend.
     ...(mtp ? ["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"] : []),
