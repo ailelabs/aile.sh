@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-09
+
 ### Changed
 
 - `aile local` installs llama.cpp b12211 (was b11867), which loads DeepSeek
