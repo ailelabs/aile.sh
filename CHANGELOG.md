@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-09
+
 ### Added
 
 - `aile config localCpuMoe <n>` (0 to 256, default 0): a llama.cpp model keeps
