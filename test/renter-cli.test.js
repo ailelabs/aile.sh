@@ -393,7 +393,7 @@ describe("the key stays behind one door", () => {
 
 
 describe("aile chat --max-price, and the self-hosted ceiling refusal", () => {
-  const MESSAGE = '"local/llama3" is priced by its sharer, so a call to it must name the most it will pay per million tokens: send x-aile-max-price in dollars (e.g. "x-aile-max-price: 2"), or set a self-hosted price ceiling on this API key (localMaxUsdPerMtok, "Max price for self-hosted models" in its Routing settings). A percent of list does not count.';
+  const MESSAGE = '"local/llama3" is priced by its sharer, so a call to it must name the most it will pay per million tokens: send x-aile-max-price in dollars (e.g. "x-aile-max-price: 2"), or set a self-hosted price ceiling on this API key (localMaxUsdPerMtok, "Max price for self-hosted models" in the key\'s Settings). A percent of list does not count.';
   const chat = (args, srv, extra = {}) => run(["chat", "hi", "--model", "local/llama3", "--pay", "balance", ...args], { data: dataDir({ serverUrl: srv.url, buyerKey: KEY, ...extra }) });
 
   it("sends x-aile-max-price in dollars, with the key, on every send", async () => {
@@ -458,7 +458,7 @@ describe("aile chat --max-price, and the self-hosted ceiling refusal", () => {
       expect(res.code).not.toBe(0);
       expect(res.all).toContain("local/llama3 is priced by its sharer, so a call must name the most it pays.");
       expect(res.all).toContain("Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2");
-      expect(res.all).toContain("a cost cap on the key (Max cost per request in its Routing settings) counts too, for a model with a published list price.");
+      expect(res.all).toContain("a cost cap on the key (Max cost per request in the key's Settings) counts too, for a model with a published list price.");
       expect(res.all).not.toContain("The request failed");
     } finally { srv.stop(); }
   });

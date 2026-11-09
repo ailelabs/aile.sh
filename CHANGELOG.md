@@ -10,6 +10,11 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Changed
+
+- Hints that pointed at a key's "Routing settings" on the dashboard now say
+  **Settings**, the dialog's name there.
+
 ## [1.5.2] - 2026-11-09
 
 ### Changed

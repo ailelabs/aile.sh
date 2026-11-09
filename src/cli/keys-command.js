@@ -222,7 +222,7 @@ async function setRules(args, ctx, c, keys, { ceiling, allowLocal }) {
       die(`${label(row)} refuses self-hosted models, so a price ceiling for them has nothing to bound.`, `\`aile keys set --allow-local yes --local-max-price ${ceiling}\` allows them and sets it.`);
     }
     if (next.dataCollection === "deny") {
-      die(`${label(row)} denies data collection, which refuses self-hosted models, so a price ceiling for them has nothing to bound.`, "Change that rule in the dashboard's Routing settings for the key.");
+      die(`${label(row)} denies data collection, which refuses self-hosted models, so a price ceiling for them has nothing to bound.`, "Change that rule in the key's Settings on the dashboard.");
     }
     next.localMaxUsdPerMtok = ceiling;
     notes.push(`Self-hosted calls on it may now pay up to $${ceiling} per million tokens, input or output.`);

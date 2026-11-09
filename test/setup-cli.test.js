@@ -252,7 +252,7 @@ describe("aile setup — writes each tool's own config, and undoes it exactly", 
     const m = machine();
     const res = await run(m, ["setup", "droid", "--mode", "both", "--model", "local/llama3.1:8b", "--key", GOOD, "--yes"]);
     expect(res.code).toBe(0);
-    expect(res.out).toContain("local/llama3.1:8b is priced by its sharer: your key needs a self-hosted price ceiling (aile keys set --local-max-price 2) or, for a model with a published list price, a cost cap (Max cost per request in its Routing settings), or every call is refused.");
+    expect(res.out).toContain("local/llama3.1:8b is priced by its sharer: your key needs a self-hosted price ceiling (aile keys set --local-max-price 2) or, for a model with a published list price, a cost cap (Max cost per request in the key's Settings), or every call is refused.");
     expect(res.out).not.toContain("Left out");
   });
 

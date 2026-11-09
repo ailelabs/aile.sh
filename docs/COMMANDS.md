@@ -479,7 +479,7 @@ aile chat "hi" --model <model> --anthropic      # Anthropic's format (/v1/messag
 aile chat "hi" --model <model> --pay own      # from your own wallet, no account needed
 ```
 
-The price is quoted on `--max-tokens` (default `quoteMaxTokens`), not on tokens used. `--max-price <usd>` sends `x-aile-max-price`: the most a call may pay per million tokens, input or output. A `local/` (self-hosted) model needs it, because its sharer sets the price, unless your key carries a self-hosted ceiling (`aile keys set --local-max-price 2`) or, for a model with a published list price, a cost cap (**Max cost per request** in its Routing settings).
+The price is quoted on `--max-tokens` (default `quoteMaxTokens`), not on tokens used. `--max-price <usd>` sends `x-aile-max-price`: the most a call may pay per million tokens, input or output. A `local/` (self-hosted) model needs it, because its sharer sets the price, unless your key carries a self-hosted ceiling (`aile keys set --local-max-price 2`) or, for a model with a published list price, a cost cap (**Max cost per request** in the key's Settings).
 
 | `--pay` | Pays with |
 |---|---|

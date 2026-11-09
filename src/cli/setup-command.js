@@ -288,7 +288,7 @@ export async function setupCommand(args) {
     console.log(`${C.dim}Left out ${models.selfHostedLeftOut} self-hosted model${models.selfHostedLeftOut === 1 ? "" : "s"} (local/…): a call to one must name the most it pays. Set a ceiling on your key with aile keys set --local-max-price 2, then name one with --model.${C.reset}`);
   }
   if (args.model && args.model !== true && isSelfHosted(args.model)) {
-    console.log(`${C.dim}${String(args.model)} is priced by its sharer: your key needs a self-hosted price ceiling (aile keys set --local-max-price 2) or, for a model with a published list price, a cost cap (Max cost per request in its Routing settings), or every call is refused.${C.reset}`);
+    console.log(`${C.dim}${String(args.model)} is priced by its sharer: your key needs a self-hosted price ceiling (aile keys set --local-max-price 2) or, for a model with a published list price, a cost cap (Max cost per request in the key's Settings), or every call is refused.${C.reset}`);
   }
 
   // --- the key ---------------------------------------------------------------

@@ -87,7 +87,7 @@ export async function cmdChat(args, ctx) {
   // cap") carries no payment document and is not a balance problem: funds or an own wallet change nothing.
   if (res.status === 402 && isCostCapRefusal(res, errorText(res.body))) {
     die(`The quote is above your per-request cost cap. ${errorText(res.body)}`.trim(),
-      "Raise Max cost per request on your key (its Routing settings) or x-aile-max-cost, or lower --max-tokens, which the quote is priced on.");
+      "Raise Max cost per request on your key (its Settings) or x-aile-max-cost, or lower --max-tokens, which the quote is priced on.");
   }
 
   if (res.status === 402) {
@@ -129,7 +129,7 @@ export async function cmdChat(args, ctx) {
     const msg = errorText(res.body) || `the server answered ${res.status}`;
     if (isLocalCeilingRefusal(res, msg)) {
       die(`${model} is priced by its sharer, so a call must name the most it pays.`,
-        "Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2 — a cost cap on the key (Max cost per request in its Routing settings) counts too, for a model with a published list price.");
+        "Pass --max-price <dollars per million tokens> (e.g. --max-price 2), or set one on your key: aile keys set --local-max-price 2 — a cost cap on the key (Max cost per request in the key's Settings) counts too, for a model with a published list price.");
     }
     die(`The request failed: ${msg}`, res.status === 401 ? "Your key was refused — `aile setup refresh --new-key` makes a new one." : null);
   }
