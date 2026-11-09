@@ -10,6 +10,8 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-11-09
+
 ### Changed
 
 - Hints that pointed at a key's "Routing settings" on the dashboard now say
