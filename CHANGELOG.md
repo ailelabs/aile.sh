@@ -10,6 +10,11 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+### Changed
+
+- `aile local` installs llama.cpp b12211 (was b11867), which loads DeepSeek
+  V4.1 models such as DeepSeek-V4.1-Flash-1017. b11867 could not.
+
 ## [1.5.1] - 2026-11-09
 
 ### Fixed
