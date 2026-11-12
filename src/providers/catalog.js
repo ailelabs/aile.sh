@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 38 providers.
+ * 39 providers.
  */
 
 export const PROVIDERS = [
@@ -540,6 +540,16 @@ export const PROVIDERS = [
         "header": "Authorization",
         "scheme": "bearer"
       }
+    }
+  },
+  {
+    "id": "morph",
+    "name": "Morph",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.morphllm.com",
+      "verifyUrl": "https://api.morphllm.com/api/v1/dedicated/endpoints",
+      "keyUrl": "https://www.morphllm.com/dashboard/api-keys"
     }
   },
   {
