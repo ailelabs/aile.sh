@@ -10,6 +10,17 @@ a patch bump fixes something.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-12
+
+### Added
+
+- `aile connect morph` links a Morph API key (from
+  morphllm.com/dashboard/api-keys) and checks it against Morph's list of your
+  dedicated endpoints, which refuses a key that does not exist.
+- `aile connect empiriolabs` links an EmpirioLabs API key (from
+  platform.empiriolabs.ai) and `aile connect paraloncloud` a ParalonCloud key
+  (from paraloncloud.com/console); a node may dial their API hosts.
+
 ## [1.6.0] - 2026-11-09
 
 ### Added
