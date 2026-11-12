@@ -19,7 +19,7 @@
  * header the credential travels in, so a probe presents it the way the relay
  * will. Everything else about serving is the server's.
  *
- * 36 providers.
+ * 38 providers.
  */
 
 export const PROVIDERS = [
@@ -231,6 +231,23 @@ export const PROVIDERS = [
       "verifyUrl": "https://api.deepseek.com/models",
       "prefix": "sk-",
       "keyUrl": "https://platform.deepseek.com/api_keys"
+    },
+    "transport": {
+      "auth": {
+        "combined": true,
+        "header": "Authorization",
+        "scheme": "bearer"
+      }
+    }
+  },
+  {
+    "id": "empiriolabs",
+    "name": "EmpirioLabs AI",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "api.empiriolabs.ai",
+      "verifyUrl": "https://api.empiriolabs.ai/v1/account/usage?limit=1",
+      "keyUrl": "https://platform.empiriolabs.ai/dashboard/api-keys"
     },
     "transport": {
       "auth": {
@@ -631,6 +648,23 @@ export const PROVIDERS = [
         "data",
         "label"
       ]
+    },
+    "transport": {
+      "auth": {
+        "combined": true,
+        "header": "Authorization",
+        "scheme": "bearer"
+      }
+    }
+  },
+  {
+    "id": "paraloncloud",
+    "name": "ParalonCloud",
+    "flow": "apikey",
+    "apiKey": {
+      "host": "paraloncloud.com",
+      "verifyUrl": "https://paraloncloud.com/v1/models",
+      "keyUrl": "https://paraloncloud.com/console"
     },
     "transport": {
       "auth": {
